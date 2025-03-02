@@ -1,4 +1,5 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import Link from "next/link";
 
 export const metadata = {
   title: "Marketplace - ZombitX64",
@@ -19,6 +20,7 @@ export default function MarketplacePage() {
           </CardHeader>
           <CardContent>
             Our marketplace will feature a wide range of AI models, datasets, and tools. Stay tuned for updates!
+            <Link href="/marketplace/product-listing">Product Listing</Link>
           </CardContent>
         </Card>
       </div>

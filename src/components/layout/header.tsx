@@ -10,9 +10,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { ConnectWalletButton } from "@/components/web3/connect-wallet-button"
+import { isAdmin } from "@/lib/auth-utils"
 
 export function Header() {
   const { data: session, status } = useSession()
+  const isUserAdmin = isAdmin(session?.user)
 
   const userInitials = session?.user?.name
     ?.split(" ")
@@ -40,9 +43,16 @@ export function Header() {
             <Link href="/community" className="hover:text-primary">
               Community
             </Link>
+            <Link href="/ai-tools" className="hover:text-primary">
+              AI Tools
+            </Link>
+            <Link href="/blockchain" className="hover:text-primary">
+              Blockchain
+            </Link>
           </nav>
         </div>
         <div className="flex items-center gap-4">
+          <ConnectWalletButton />
           {status === "authenticated" ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -60,9 +70,15 @@ export function Header() {
                 <DropdownMenuItem asChild>
                   <Link href="/settings">Settings</Link>
                 </DropdownMenuItem>
+                
                 <DropdownMenuItem asChild>
                   <Link href="/dashboard">Dashboard</Link>
                 </DropdownMenuItem>
+                {isUserAdmin && (
+                  <DropdownMenuItem asChild>
+                    <Link href="/admin/analytics">Analytics</Link>
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem onClick={() => signOut()}>
                   Sign out
                 </DropdownMenuItem>

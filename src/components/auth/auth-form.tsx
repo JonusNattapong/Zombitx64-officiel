@@ -6,10 +6,10 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { cn } from "@/lib/utils"
-import { useForm } from "react-hook-form"
-import { validateAuthForm } from "@/lib/auth-utils"
+import { cn } from "@/lib/utils";
+import { useForm } from "react-hook-form";
 import { toast } from "@/hooks/use-toast"
+import { Icons } from "@/components/ui/icons"
 
 interface AuthFormProps extends React.HTMLAttributes<HTMLDivElement> {
   type: "login" | "register"
@@ -21,29 +21,55 @@ interface FormData {
   name?: string
 }
 
+function validateAuthForm(data: FormData) {
+    const errors: Partial<FormData> = {};
+
+    if (!data.email) {
+      errors.email = "Email is required";
+    } else if (!/\S+@\S+\.\S+/.test(data.email)) {
+      errors.email = "Email is invalid";
+    }
+
+    if (!data.password) {
+      errors.password = "Password is required";
+    } else if (data.password.length < 8) {
+      errors.password = "Password must be at least 8 characters";
+    }
+
+    if (data.name && data.name.length < 3) {
+        errors.name = "Name must be at least 3 characters";
+    }
+
+    return {
+      valid: Object.keys(errors).length === 0,
+      errors,
+    };
+}
+
+
 export function AuthForm({ className, type, ...props }: AuthFormProps) {
-  const router = useRouter()
-  const [isLoading, setIsLoading] = React.useState<boolean>(false)
+  const router = useRouter();
+  const [isLoading, setIsLoading] = React.useState<boolean>(false);
   const {
     register,
     handleSubmit,
     formState: { errors },
-  } = useForm<FormData>()
+  } = useForm<FormData>();
 
   async function onSubmit(data: FormData) {
-    setIsLoading(true)
+    setIsLoading(true);
 
-    const validation = validateAuthForm(data, type === "register")
-    if (!validation.isValid) {
-      Object.entries(validation.errors).forEach(([_, message]) => {
+    const validation = validateAuthForm(data);
+    if (!validation.valid) {
+      Object.entries(validation.errors || {}).forEach(([_, message]) => {
         toast({
           title: "Validation Error",
           description: message,
           variant: "destructive",
-        })
-      })
-      setIsLoading(false)
-      return
+        });
+      });
+      setIsLoading(false);
+      return;
     }
 
     try {
@@ -52,21 +78,21 @@ export function AuthForm({ className, type, ...props }: AuthFormProps) {
           redirect: false,
           email: data.email,
           password: data.password,
-        })
+        });
 
         if (!result?.error) {
           toast({
             title: "Success",
             description: "Logged in successfully",
-          })
-          router.push("/")
-          router.refresh()
+          });
+          router.push("/");
+          router.refresh();
         } else {
           toast({
             title: "Error",
             description: "Invalid credentials",
             variant: "destructive",
-          })
+          });
         }
       } else {
         // Register
@@ -76,31 +102,31 @@ export function AuthForm({ className, type, ...props }: AuthFormProps) {
             "Content-Type": "application/json",
           },
           body: JSON.stringify(data),
-        })
+        });
 
         if (response.ok) {
           toast({
             title: "Success",
             description: "Account created successfully",
-          })
+          });
           // After successful registration, sign in automatically
           const result = await signIn("credentials", {
             redirect: false,
             email: data.email,
             password: data.password,
-          })
+          });
 
           if (!result?.error) {
-            router.push("/")
-            router.refresh()
+            router.push("/");
+            router.refresh();
           }
         } else {
-          const errorData = await response.json()
+          const errorData = await response.json();
           toast({
             title: "Error",
             description: errorData.error || "Registration failed",
             variant: "destructive",
-          })
+          });
         }
       }
     } catch (error) {
@@ -108,9 +134,9 @@ export function AuthForm({ className, type, ...props }: AuthFormProps) {
         title: "Error",
         description: "Something went wrong. Please try again.",
         variant: "destructive",
-      })
+      });
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
   }
 
@@ -180,6 +206,7 @@ export function AuthForm({ className, type, ...props }: AuthFormProps) {
           disabled={isLoading}
           onClick={() => signIn("google", { callbackUrl: "/" })}
         >
+          <Icons.google className="h-5 w-5 mr-2" />
           Continue with Google
         </Button>
         <Button
@@ -188,9 +215,10 @@ export function AuthForm({ className, type, ...props }: AuthFormProps) {
           disabled={isLoading}
           onClick={() => signIn("github", { callbackUrl: "/" })}
         >
+          <Icons.github className="h-5 w-5 mr-2" />
           Continue with GitHub
         </Button>
       </div>
     </div>
-  )
+  );
 }
