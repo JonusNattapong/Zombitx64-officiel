@@ -1,28 +1,23 @@
+import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
-import { getServerSession } from "next-auth";
-import { redirect } from "next/navigation";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import type { User } from "next-auth";
 
 export default async function ProfilePage() {
   const session = await getServerSession(authOptions);
-
-  if (!session?.user) {
-    redirect("/login");
-  }
+  const user: User | undefined = session?.user;
 
   return (
-    <div className="p-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Profile</CardTitle>
-          <CardDescription>View and manage your profile information.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p>Name: {session.user.name}</p>
-          <p>Email: {session.user.email}</p>
-          {/* Add more profile information here */}
-        </CardContent>
-      </Card>
+    <div className="container py-8">
+      <h1 className="text-4xl font-bold mb-8">Profile</h1>
+      {user ? (
+        <div>
+          <p>Name: {user.name}</p>
+          <p>Email: {user.email}</p>
+          {/* <p>Wallet Address: {user.walletAddress}</p> */}
+        </div>
+      ) : (
+        <p>Please log in to view your profile.</p>
+      )}
     </div>
   );
 }
