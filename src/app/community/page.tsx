@@ -18,7 +18,7 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { MessageSquare, ThumbsUp, Users, BookMarked } from "lucide-react";
+import { MessageSquare, ThumbsUp, Users, BookMarked, Link } from "lucide-react";
 
 interface Post {
   id: string;
@@ -71,6 +71,56 @@ const mockPosts: Post[] = [
     timestamp: "6 hours ago",
   },
 ];
+
+interface Project {
+  id: string;
+  name: string;
+  description: string;
+  author: string;
+  members: number;
+}
+
+const mockProjects: Project[] = [
+    {
+        id: "1",
+        name: "Decentralized AI Marketplace",
+        description: "A platform for buying and selling AI models on the blockchain.",
+        author: "John Doe",
+        members: 5,
+    },
+    {
+        id: "2",
+        name: "AI-Powered Cybersecurity Tool",
+        description: "A tool that uses AI to detect and prevent cyberattacks.",
+        author: "Jane Smith",
+        members: 3,
+    }
+];
+
+interface Resource {
+    id: string;
+    title: string;
+    description: string;
+    link: string;
+    author: string;
+}
+
+const mockResources: Resource[] = [
+    {
+        id: "1",
+        title: "Introduction to Smart Contract Security",
+        description: "A comprehensive guide to writing secure smart contracts.",
+        link: "https://consensys.github.io/smart-contract-best-practices/",
+        author: "ConsenSys Diligence",
+    },
+    {
+        id: "2",
+        title: "AI and Cybersecurity: A Comprehensive Overview",
+        description: "An overview of how AI is being used in cybersecurity.",
+        link: "https://www.nist.gov/itl/applied-cybersecurity/ai-and-cybersecurity",
+        author: "NIST",
+    }
+]
 
 export default function CommunityPage() {
   const [activeTab, setActiveTab] = useState("discussions");
@@ -146,31 +196,39 @@ export default function CommunityPage() {
         </TabsContent>
 
         <TabsContent value="projects" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Active Projects</CardTitle>
-              <CardDescription>
-                Find projects to collaborate on or start your own
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p>Project listings coming soon...</p>
-            </CardContent>
-          </Card>
+            {mockProjects.map(project => (
+                <Card key={project.id}>
+                    <CardHeader>
+                        <CardTitle>{project.name}</CardTitle>
+                        <CardDescription>{project.description}</CardDescription>
+                    </CardHeader>
+                    <CardFooter className="flex items-center justify-between">
+                        <div>
+                            <span className="text-sm font-medium">Author:</span> <span className="text-sm text-muted-foreground">{project.author}</span>
+                        </div>
+                        <div>
+                            <span className="text-sm font-medium">Members:</span> <span className="text-sm text-muted-foreground">{project.members}</span>
+                        </div>
+                    </CardFooter>
+                </Card>
+            ))}
         </TabsContent>
 
         <TabsContent value="resources" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Community Resources</CardTitle>
-              <CardDescription>
-                Helpful resources shared by the community
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p>Resource library coming soon...</p>
-            </CardContent>
-          </Card>
+          {mockResources.map(resource => (
+            <Card key={resource.id}>
+                <CardHeader>
+                    <CardTitle>{resource.title}</CardTitle>
+                    <CardDescription>{resource.description}</CardDescription>
+                </CardHeader>
+                <CardFooter>
+                    <a href={resource.link} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-500 hover:underline flex items-center">
+                        <Link className="w-4 h-4 mr-1" />
+                        Go to Resource
+                    </a>
+                </CardFooter>
+            </Card>
+          ))}
         </TabsContent>
       </Tabs>
     </div>

@@ -1,5 +1,7 @@
 "use client";
 
+"use client";
+
 import { useState } from "react";
 import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
@@ -18,15 +20,43 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
+import { useToast } from "@/hooks/use-toast";
+import { trpc } from "@/app/_trpc/client";
 
 export default function SettingsPage() {
-  const { data: session } = useSession();
+  const { data: session, update } = useSession();
   const [isLoading, setIsLoading] = useState(false);
+  const { toast } = useToast();
+
+  const utils = trpc.useContext();
+  const updateUser = trpc.profile.update.useMutation({
+    onSuccess: async () => {
+      toast({
+        title: "Success",
+        description: "Your profile has been updated.",
+        variant: "default",
+      });
+      await update();
+      await utils.profile.invalidate();
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Something went wrong. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
 
   const onSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setIsLoading(true);
-    // TODO: Implement update profile
+
+    const name = (event.currentTarget.name as HTMLInputElement).value;
+    const email = (event.currentTarget.email as HTMLInputElement).value;
+    
+    await updateUser.mutateAsync({ name, email });
+
     setIsLoading(false);
   };
 
@@ -42,7 +72,7 @@ export default function SettingsPage() {
   return (
     <div className="container py-8">
       <h1 className="text-4xl font-bold mb-8">Settings</h1>
-      
+
       <Tabs defaultValue="profile" className="w-full">
         <TabsList>
           <TabsTrigger value="profile">Profile</TabsTrigger>

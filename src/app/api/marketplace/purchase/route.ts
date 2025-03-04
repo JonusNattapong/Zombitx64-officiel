@@ -1,8 +1,57 @@
-import { NextResponse } from "next/server"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/app/api/auth/[...nextauth]/route"
-import prisma from "@/lib/db"
-import { generateQRCode } from "@/lib/payment"
+import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import prisma from "@/lib/db";
+import { generateQRCode } from "@/lib/payment";
+import type { Prisma } from "@prisma/client";
+
+// Define transaction status constants
+const TransactionStatus = {
+  PENDING: 'pending',
+  QR_GENERATED: 'qr_generated',
+  COMPLETED: 'completed',
+  FAILED: 'failed',
+  REFUNDED: 'refunded',
+} as const;
+
+// Type for QR code metadata
+interface QRCodeMetadata {
+  qrCode: string;
+  expiresAt: string;
+}
+
+// Type for API responses
+interface APIResponse<T> {
+  success: boolean;
+  data?: T;
+  error?: string;
+  code?: string;
+}
+
+// Type for transaction details in response
+interface TransactionDetails {
+  id: string;
+  amount: number;
+  status: string;
+  paymentMethod: string;
+  currency: string | null;
+  metadata: string | null;
+  updatedAt: Date;
+}
+
+const transactionSelect = {
+  id: true,
+  amount: true,
+  status: true,
+  paymentMethod: true,
+  currency: true,
+  metadata: true,
+  updatedAt: true,
+} as const;
+
+type TransactionWithMetadata = Prisma.TransactionGetPayload<{
+  select: typeof transactionSelect;
+}>;
 
 export async function POST(req: Request) {
   try {
@@ -55,15 +104,15 @@ export async function POST(req: Request) {
       },
     });
 
- // Get owner's payment settings
- const owner = await prisma.user.findUnique({
-   where: { id: product.ownerId },
-   include: { settings: true }, // Correctly include the settings relation
- });
+ // Get owner's payment settings with proper type selection
+ // Get owner's payment settings using raw query
+ const [settings] = await prisma.$queryRaw<Array<{ promptpayId: string | null }>>`
+   SELECT promptpayId FROM UserSettings WHERE userId = ${product.ownerId}
+ `;
 
- if (!owner?.settings?.promptpayId) {
+ if (!settings?.promptpayId) {
    return NextResponse.json(
-     { error: "Owner's PromptPay ID not found" }, // Improved error message
+     { error: "Owner's PromptPay ID not found" },
      { status: 404 }
    );
  }
@@ -72,50 +121,103 @@ export async function POST(req: Request) {
  const qrCode = await generateQRCode({
    amount: product.price,
    paymentId: transaction.id,
-   promptpayId: owner.settings.promptpayId,
+   promptpayId: settings.promptpayId,
  });
 
-  // Update transaction with QR code data and status
- const updatedTransaction = await prisma.transaction.update({
-   where: { id: transaction.id },
-   data: {
-     qrCodeData: qrCode,
-     qrCodeExpiry: new Date(Date.now() + 15 * 60 * 1000), // 15 minutes expiry
-     status: 'qr_generated', // Update status
-   },
- });
+ // Store QR code data in metadata
+ const qrCodeData = {
+   qrCode,
+   expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString()
+ };
 
+ // Store QR code data and update transaction status
+ await prisma.$executeRaw`
+   UPDATE Transaction
+   SET status = 'qr_generated',
+       reference = ${JSON.stringify({
+         qrCode,
+         expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString()
+       })}
+   WHERE id = ${transaction.id}
+ `;
+
+ // Get updated transaction data
+ const [updatedTransaction] = await prisma.$queryRaw<Array<{
+   id: string;
+   amount: number;
+   status: string;
+   paymentMethod: string;
+   currency: string | null;
+   updatedAt: Date;
+   reference: string | null;
+ }>>`
+   SELECT id, amount, status, paymentMethod, currency, updatedAt, reference
+   FROM Transaction
+   WHERE id = ${transaction.id}
+ `;
+
+ if (!updatedTransaction) {
+   throw new Error("Failed to fetch updated transaction");
+ }
+
+ if (!updatedTransaction) {
+   throw new Error("Failed to fetch updated transaction");
+ }
+
+ // Try to parse QR code data from reference field
+ let qrData = null;
+ let expiresAt = null;
+
+ if (updatedTransaction.reference) {
+   try {
+     const parsed = JSON.parse(updatedTransaction.reference);
+     qrData = parsed.qrCode;
+     expiresAt = parsed.expiresAt ? new Date(parsed.expiresAt) : null;
+   } catch (e) {
+     console.error('Failed to parse transaction reference:', e);
+   }
+ }
 
  // Create notification for seller
  await prisma.notification.create({
-      data: {
-        userId: product.ownerId,
-        type: "new_purchase",
-        title: "New Purchase",
-        content: `Someone has initiated a purchase for ${product.title}`,
-        data: JSON.stringify({
-          productId: product.id,
-          transactionId: transaction.id
-        })
-      }
-    })
+   data: {
+     userId: product.ownerId,
+     type: "new_purchase",
+     title: "New Purchase",
+     content: `Someone has initiated a purchase for ${product.title}`,
+     data: JSON.stringify({
+       productId: product.id,
+       transactionId: transaction.id,
+       qrCode: qrData,
+       expiresAt: expiresAt?.toISOString()
+     })
+   }
+ });
 
-    return NextResponse.json({
-      success: true,
-      transaction: {
-        id: transaction.id,
-        amount: transaction.amount,
-        status: transaction.status,
-        qrCode: qrCode,
-        expiresAt: new Date(Date.now() + 15 * 60 * 1000)
-      }
-    })
-  } catch (error) {
-    console.error("Purchase error:", error)
+ return NextResponse.json({
+   success: true,
+   data: {
+     id: updatedTransaction.id,
+     amount: updatedTransaction.amount,
+     status: updatedTransaction.status,
+     paymentMethod: updatedTransaction.paymentMethod,
+     currency: updatedTransaction.currency,
+     updatedAt: new Date(updatedTransaction.updatedAt),
+     qrCode: qrData,
+     expiresAt
+   }
+ });
+} catch (error) {
+ console.error("Purchase error:", error);
+    const errorMessage = error instanceof Error ? error.message : "Failed to process purchase";
     return NextResponse.json(
-      { error: "Failed to process purchase" },
+      {
+        success: false,
+        error: errorMessage,
+        code: "PURCHASE_ERROR"
+      },
       { status: 500 }
-    )
+    );
   }
 }
 
@@ -132,26 +234,69 @@ export async function GET(req: Request) {
       )
     }
 
-    const transaction = await prisma.transaction.findUnique({
-      where: { id: transactionId }
-    })
+    // Get transaction data using raw query
+    const [transaction] = await prisma.$queryRaw<Array<{
+      id: string;
+      amount: number;
+      status: string;
+      paymentMethod: string;
+      currency: string | null;
+      updatedAt: Date;
+      reference: string | null;
+    }>>`
+      SELECT id, amount, status, paymentMethod, currency, updatedAt, reference
+      FROM Transaction
+      WHERE id = ${transactionId}
+    `;
 
     if (!transaction) {
       return NextResponse.json(
-        { error: "Transaction not found" },
+        {
+          success: false,
+          error: "Transaction not found",
+          code: "TRANSACTION_NOT_FOUND"
+        },
         { status: 404 }
-      )
+      );
+    }
+
+    // Try to parse QR code data from reference field
+    let qrData = null;
+    let expiresAt = null;
+
+    if (transaction.reference) {
+      try {
+        const parsed = JSON.parse(transaction.reference);
+        qrData = parsed.qrCode;
+        expiresAt = parsed.expiresAt ? new Date(parsed.expiresAt) : null;
+      } catch (e) {
+        console.error('Failed to parse transaction reference:', e);
+      }
     }
 
     return NextResponse.json({
-      status: transaction.status,
-      updatedAt: transaction.updatedAt
-    })
+      success: true,
+      data: {
+        id: transaction.id,
+        amount: transaction.amount,
+        status: transaction.status,
+        paymentMethod: transaction.paymentMethod,
+        currency: transaction.currency,
+        updatedAt: new Date(transaction.updatedAt),
+        qrCode: qrData,
+        expiresAt
+      }
+    });
   } catch (error) {
-    console.error("Payment status check error:", error)
+    console.error("Payment status check error:", error);
+    const errorMessage = error instanceof Error ? error.message : "Failed to check payment status";
     return NextResponse.json(
-      { error: "Failed to check payment status" },
+      {
+        success: false,
+        error: errorMessage,
+        code: "STATUS_CHECK_ERROR"
+      },
       { status: 500 }
-    )
+    );
   }
 }
