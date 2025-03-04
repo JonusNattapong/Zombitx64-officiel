@@ -20,9 +20,9 @@ model User {
   updatedAt         DateTime       @updatedAt
   accounts          Account[]
   sessions          Session[]
-  settings          String?
-  activity          String?
-  skills            String?
+  settings          UserSettings?
+  activity          ActivityLog[]
+  skills            Skill[]
   reputation        Int            @default(0)
   products          Product[]      @relation("CreatedProducts")
   purchases         Transaction[]  @relation("Purchases")
@@ -34,7 +34,47 @@ model User {
   apiUsage         ApiUsage[]
   twoFactorSecret   String?
   recoveryCodes     String?
-  twoFactorEnabled  Boolean      @default(false)
+  twoFactorEnabled  Boolean        @default(false)
+  reviews          Review[]        @relation("UserReviews")
+  receivedReviews  Review[]        @relation("ReceivedReviews")
+}
+
+model UserSettings {
+  id              String    @id @default(cuid())
+  userId          String    @unique
+  user            User      @relation(fields: [userId], references: [id])
+  theme           String    @default("light")
+  emailNotifications Boolean @default(true)
+  pushNotifications Boolean @default(true)
+  language        String    @default("en")
+  timezone        String    @default("UTC")
+  marketingEmails Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  promptpayId     String?
+}
+
+model ActivityLog {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  type        String   // login, purchase, sale, course_progress, etc.
+  description String
+  metadata    String?
+  createdAt   DateTime @default(now())
+  ip          String?
+  userAgent   String?
+}
+
+model Skill {
+  id          String   @id @default(cuid())
+  name        String
+  level       Int      @default(1)
+  verified    Boolean  @default(false)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 }
 
 model Account {
@@ -50,7 +90,6 @@ model Account {
   scope             String?
   id_token          String?
   session_state     String?
-
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
@@ -73,54 +112,78 @@ model VerificationToken {
 }
 
 model Product {
-  id          String       @id @default(cuid())
-  title       String
-  description String
-  price       Float
-  fileHash    String
-  version     String       @default("1.0.0")
-  category    String
-  tags        String
-  metrics     String?
-  extendedMetrics String?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  ownerId     String
-  owner       User         @relation("CreatedProducts", fields: [ownerId], references: [id])
-  transactions Transaction[] @relation("ProductTransactions")
+  id              String       @id @default(cuid())
+  title           String
+  description     String
+  price           Float
+  fileHash        String
+  version         String       @default("1.0.0")
+  category        String
+  subcategory     String?
+  tags            String    // Array of tags
+  metrics         String?       // Basic metrics
+  extendedMetrics String?      // Detailed analytics
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  ownerId         String
+  owner           User          @relation("CreatedProducts", fields: [ownerId], references: [id])
+  transactions    Transaction[]     @relation("ProductTransactions")
+  reviews         Review[]
+  status          String            @default("draft") // draft, published, archived
+  featured      Boolean           @default(false)
+  downloads       Int         @default(0)
+  rating          Float?      // Average rating
+  documentation   String?
+  demoUrl         String?
+  sourceUrl       String?
+  license         String?
+  requirements    String?       // System requirements
+  changelog       String?       // Version history
 }
 
 model Transaction {
-  id          String   @id @default(cuid())
-  buyerId     String
-  sellerId    String
-  productId   String
-  amount      Float
-  status      String
-  paymentMethod String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  buyer       User     @relation("Purchases", fields: [buyerId], references: [id])
-  seller      User     @relation("Sales", fields: [sellerId], references: [id])
-  product     Product  @relation("ProductTransactions", fields: [productId], references: [id])
-  currency    String?
-  walletAddress String?
-  subscriptionId String?
+  id            String    @id @default(cuid())
+  buyerId       String
+  sellerId      String
+  productId     String
+  amount        Float
+  status        String    // pending, completed, failed, refunded
+  paymentMethod String    // qr_promptpay, crypto, card
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  buyer         User      @relation("Purchases", fields: [buyerId], references: [id])
+  seller        User      @relation("Sales", fields: [sellerId], references: [id])
+  product       Product   @relation("ProductTransactions", fields: [productId], references: [id])
+  currency      String    @default("THB")
+  walletAddress String?   // For crypto payments
+  subscriptionId String?  // For recurring payments
+  qrCodeData    String?   // QR code payment data
+  qrCodeExpiry  DateTime? // QR code expiration time
+  paymentProof  String?   // Payment proof/receipt URL
+  refundReason  String?   // Reason if refunded
+  metadata      String?     // Additional payment details
+  reference     String?   // Payment reference number
+
+  @@index([buyerId, productId])
 }
 
 model Challenge {
-  id          String   @id @default(cuid())
-  title       String
-  description String
-  rules       String
-  startDate   DateTime
-  endDate     DateTime
-  reward      String
-  status      String   @default("upcoming")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  participants User[]  @relation("ParticipatedChallenges")
-  submissions String?
+  id           String   @id @default(cuid())
+  title        String
+  description  String
+  rules        String
+  startDate    DateTime
+  endDate      DateTime
+  reward       String     // Structured reward data
+  status       String   @default("upcoming")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  participants User[]   @relation("ParticipatedChallenges")
+  submissions  String?    // Structured submission data
+  difficulty   String   @default("medium")
+  categories   String // Challenge categories
+  prerequisites String?   // Required skills/knowledge
+  resources    String?    // Learning resources
 }
 
 model Collaboration {
@@ -131,7 +194,12 @@ model Collaboration {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   members     User[]   @relation("UserCollaborations")
-  resources   String?
+  resources   String?    // Project resources
+  tasks       String?    // Project tasks
+  timeline    String?    // Project timeline
+  visibility  String   @default("public")
+  maxMembers  Int?
+  tags        String
 }
 
 model LearningProgress {
@@ -143,7 +211,11 @@ model LearningProgress {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   user        User     @relation(fields: [userId], references: [id])
-  data        String?
+  data        String?    // Course progress data
+  lastAccessed DateTime?
+  timeSpent   Int      @default(0) // Time spent in minutes
+  certificates String?    // Earned certificates
+  quizScores  String?    // Quiz results
 }
 
 model ApiUsage {
@@ -155,6 +227,9 @@ model ApiUsage {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   user        User     @relation(fields: [userId], references: [id])
+  responseTime Float?  // API response time
+  errors      Int      @default(0)
+  lastError   String?
 }
 
 model Notification {
@@ -167,6 +242,9 @@ model Notification {
   createdAt   DateTime @default(now())
   user        User     @relation(fields: [userId], references: [id])
   data        String?
+  priority    String   @default("normal")
+  expiresAt   DateTime?
+  action      String?  // URL or action identifier
 }
 
 model Event {
@@ -180,4 +258,25 @@ model Event {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   data        String?
+  location    String?
+  maxAttendees Int?
+  isOnline    Boolean  @default(false)
+  recording   String?
+  materials   String?
+}
+
+model Review {
+  id          String   @id @default(cuid())
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id])
+  userId      String
+  user        User     @relation("UserReviews", fields: [userId], references: [id])
+  sellerId    String
+  seller      User     @relation("ReceivedReviews", fields: [sellerId], references: [id])
+  rating      Int
+  comment     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  helpful     Int      @default(0)
+  verified    Boolean  @default(false)
 }
