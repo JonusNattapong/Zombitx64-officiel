@@ -19,6 +19,7 @@ interface FormData {
   email: string
   password: string
   name?: string
+  rememberMe?: boolean
 }
 
 function validateAuthForm(data: FormData) {
@@ -46,17 +47,40 @@ function validateAuthForm(data: FormData) {
     };
 }
 
-
 export function AuthForm({ className, type, ...props }: AuthFormProps) {
   const router = useRouter();
   const [isLoading, setIsLoading] = React.useState<boolean>(false);
+  const [loginAttempts, setLoginAttempts] = React.useState<number>(0);
+  const [isLocked, setIsLocked] = React.useState<boolean>(false);
+  const loginCooldownTime = 300000; // 5 minutes in milliseconds
+
   const {
     register,
     handleSubmit,
     formState: { errors },
+    reset,
   } = useForm<FormData>();
 
+  React.useEffect(() => {
+    if (isLocked) {
+      const timer = setTimeout(() => {
+        setIsLocked(false);
+        setLoginAttempts(0);
+      }, loginCooldownTime);
+      return () => clearTimeout(timer);
+    }
+  }, [isLocked]);
+
   async function onSubmit(data: FormData) {
+    if (isLocked) {
+      toast({
+        title: "Account Locked",
+        description: "Too many login attempts. Please try again in 5 minutes.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsLoading(true);
 
     const validation = validateAuthForm(data);
@@ -78,6 +102,7 @@ export function AuthForm({ className, type, ...props }: AuthFormProps) {
           redirect: false,
           email: data.email,
           password: data.password,
+          rememberMe: data.rememberMe,
         });
 
         if (!result?.error) {
@@ -87,12 +112,26 @@ export function AuthForm({ className, type, ...props }: AuthFormProps) {
           });
           router.push("/");
           router.refresh();
+          reset();
+          setLoginAttempts(0);
         } else {
-          toast({
-            title: "Error",
-            description: "Invalid credentials",
-            variant: "destructive",
-          });
+          const newAttempts = loginAttempts + 1;
+          setLoginAttempts(newAttempts);
+          
+          if (newAttempts >= 5) {
+            setIsLocked(true);
+            toast({
+              title: "Account Locked",
+              description: "Too many failed attempts. Please try again in 5 minutes.",
+              variant: "destructive",
+            });
+          } else {
+            toast({
+              title: "Error",
+              description: "Invalid credentials. Attempts remaining: " + (5 - newAttempts),
+              variant: "destructive",
+            });
+          }
         }
       } else {
         // Register
@@ -151,7 +190,7 @@ export function AuthForm({ className, type, ...props }: AuthFormProps) {
                 id="name"
                 placeholder="John Doe"
                 type="text"
-                disabled={isLoading}
+                disabled={isLoading || isLocked}
                 {...register("name")}
               />
               {errors.name && (
@@ -165,7 +204,8 @@ export function AuthForm({ className, type, ...props }: AuthFormProps) {
               id="email"
               placeholder="name@example.com"
               type="email"
-              disabled={isLoading}
+              autoComplete="email"
+              disabled={isLoading || isLocked}
               {...register("email")}
             />
             {errors.email && (
@@ -177,16 +217,54 @@ export function AuthForm({ className, type, ...props }: AuthFormProps) {
             <Input
               id="password"
               type="password"
-              disabled={isLoading}
+              autoComplete="current-password"
+              disabled={isLoading || isLocked}
               {...register("password")}
             />
             {errors.password && (
               <p className="text-sm text-red-500">{errors.password.message}</p>
             )}
           </div>
-          <Button disabled={isLoading}>
-            {type === "login" ? "Sign In" : "Sign Up"}
+          {type === "login" && (
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Input
+                  type="checkbox"
+                  id="remember"
+                  className="h-4 w-4 rounded border-gray-300"
+                  disabled={isLoading || isLocked}
+                  {...register("rememberMe")}
+                />
+                <Label htmlFor="remember">Remember me</Label>
+              </div>
+              <Button
+                variant="link"
+                className="px-0 font-normal"
+                onClick={(e) => {
+                  e.preventDefault();
+                  router.push("/forgot-password");
+                }}
+                disabled={isLoading || isLocked}
+              >
+                Forgot password?
+              </Button>
+            </div>
+          )}
+          <Button disabled={isLoading || isLocked}>
+            {isLoading ? (
+              <>
+                <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />
+                {type === "login" ? "Signing in..." : "Creating account..."}
+              </>
+            ) : (
+              <>{type === "login" ? "Sign In" : "Sign Up"}</>
+            )}
           </Button>
+          {isLocked && (
+            <p className="text-sm text-red-500 text-center">
+              Account locked. Please try again in 5 minutes.
+            </p>
+          )}
         </div>
       </form>
       <div className="relative">
@@ -203,8 +281,36 @@ export function AuthForm({ className, type, ...props }: AuthFormProps) {
         <Button
           variant="outline"
           type="button"
-          disabled={isLoading}
-          onClick={() => signIn("google", { callbackUrl: "/" })}
+          disabled={isLoading || isLocked}
+          onClick={async () => {
+            try {
+              setIsLoading(true);
+              await signIn("google", {
+                redirect: false,
+              }).then((result) => {
+                if (result?.error) {
+                  console.error("Google sign in error:", result.error);
+                  toast({
+                    title: "Error",
+                    description: "Failed to sign in with Google. Please try again.",
+                    variant: "destructive",
+                  });
+                }
+                if (result?.ok) {
+                  router.push("/");
+                  router.refresh();
+                }
+              });
+            } catch (error) {
+              toast({
+                title: "Error",
+                description: "Failed to connect with Google. Please try again.",
+                variant: "destructive",
+              });
+            } finally {
+              setIsLoading(false);
+            }
+          }}
         >
           <Icons.google className="h-5 w-5 mr-2" />
           Continue with Google
@@ -212,8 +318,36 @@ export function AuthForm({ className, type, ...props }: AuthFormProps) {
         <Button
           variant="outline"
           type="button"
-          disabled={isLoading}
-          onClick={() => signIn("github", { callbackUrl: "/" })}
+          disabled={isLoading || isLocked}
+          onClick={async () => {
+            try {
+              setIsLoading(true);
+              await signIn("github", {
+                redirect: false,
+              }).then((result) => {
+                if (result?.error) {
+                  console.error("GitHub sign in error:", result.error);
+                  toast({
+                    title: "Error",
+                    description: "Failed to sign in with GitHub. Please try again.",
+                    variant: "destructive",
+                  });
+                }
+                if (result?.ok) {
+                  router.push("/");
+                  router.refresh();
+                }
+              });
+            } catch (error) {
+              toast({
+                title: "Error",
+                description: "Failed to connect with GitHub. Please try again.",
+                variant: "destructive",
+              });
+            } finally {
+              setIsLoading(false);
+            }
+          }}
         >
           <Icons.github className="h-5 w-5 mr-2" />
           Continue with GitHub

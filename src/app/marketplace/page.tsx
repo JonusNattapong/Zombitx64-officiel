@@ -110,19 +110,47 @@ async function MarketplaceContent({
   const sort = typeof searchParams.sort === "string" ? searchParams.sort : "latest"
   const page = typeof searchParams.page === "string" ? parseInt(searchParams.page) : 1
 
-  const response = await fetch(
-    `/api/marketplace?search=${search}&category=${category}&sort=${sort}&page=${page}`,
-    { cache: "no-store" }
-  )
-  const data = await response.json()
+  const url = new URL("/api/marketplace", process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000")
+  url.searchParams.set("search", search)
+  // Only set category if it's not "all"
+  if (category && category !== "all") {
+    url.searchParams.set("category", category)
+  }
+  url.searchParams.set("sort", sort)
+  url.searchParams.set("page", page.toString())
+  
+  try {
+    const response = await fetch(url, { cache: "no-store" })
+    const data = await response.json()
 
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-      {data.products.map((product: Product) => (
-        <ProductCard key={product.id} product={product} />
-      ))}
-    </div>
-  )
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to fetch products')
+    }
+
+    if (!data.products || !Array.isArray(data.products)) {
+      throw new Error('Invalid response format')
+    }
+
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        {data.products.length === 0 ? (
+          <div className="col-span-full text-center py-10 text-muted-foreground">
+            No products found
+          </div>
+        ) : (
+          data.products.map((product: Product) => (
+            <ProductCard key={product.id} product={product} />
+          ))
+        )}
+      </div>
+    )
+  } catch (error) {
+    return (
+      <div className="col-span-full text-center py-10 text-red-500">
+        {error instanceof Error ? error.message : 'An error occurred while fetching products'}
+      </div>
+    )
+  }
 }
 
 export default function MarketplacePage({
@@ -146,7 +174,7 @@ export default function MarketplacePage({
             <SelectValue placeholder="Category" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All Categories</SelectItem>
+            <SelectItem value="all">All Categories</SelectItem>
             {categories.map((category) => (
               <SelectItem key={category} value={category.toLowerCase()}>
                 {category}

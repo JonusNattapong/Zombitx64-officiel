@@ -59,6 +59,21 @@
   }
 }
 
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none ring-offset-background;
+  }
+  .btn-primary {
+    @apply bg-primary text-primary-foreground hover:bg-primary/90;
+  }
+  .btn-secondary {
+    @apply bg-secondary text-secondary-foreground hover:bg-secondary/80;
+  }
+  .btn-ghost {
+    @apply hover:bg-accent hover:text-accent-foreground;
+  }
+}
+
 @layer utilities {
   .step {
     counter-increment: step;
@@ -68,6 +83,140 @@
     @apply absolute w-9 h-9 bg-muted rounded-full font-mono font-medium text-center text-base inline-flex items-center justify-center -indent-px border-4 border-background;
     @apply ml-[-50px] mt-[-4px];
     content: counter(step);
+  }
+
+    /* Margin */
+  .m-1 {
+    margin: 0.25rem;
+  }
+
+  .m-2 {
+    margin: 0.5rem;
+  }
+
+  .m-3 {
+    margin: 0.75rem;
+  }
+
+  .m-4 {
+    margin: 1rem;
+  }
+
+  .m-5 {
+    margin: 1.25rem;
+  }
+
+  .m-6 {
+    margin: 1.5rem;
+  }
+
+  .m-8 {
+    margin: 2rem;
+  }
+
+  .m-10 {
+    margin: 2.5rem;
+  }
+
+  .m-12 {
+    margin: 3rem;
+  }
+
+  .m-16 {
+    margin: 4rem;
+  }
+
+  .m-20 {
+    margin: 5rem;
+  }
+
+  /* Padding */
+    .p-1 {
+    padding: 0.25rem;
+  }
+
+  .p-2 {
+    padding: 0.5rem;
+  }
+
+  .p-3 {
+    padding: 0.75rem;
+  }
+
+  .p-4 {
+    padding: 1rem;
+  }
+
+  .p-5 {
+    padding: 1.25rem;
+  }
+
+  .p-6 {
+    padding: 1.5rem;
+  }
+
+  .p-8 {
+    padding: 2rem;
+  }
+
+  .p-10 {
+    padding: 2.5rem;
+  }
+
+  .p-12 {
+    padding: 3rem;
+  }
+
+  .p-16 {
+    padding: 4rem;
+  }
+
+  .p-20 {
+    padding: 5rem;
+  }
+
+  /* Responsive */
+  @media (min-width: 640px) {
+    .sm\:p-1 {
+      padding: 0.25rem;
+    }
+    .sm\:p-2 {
+      padding: 0.5rem;
+    }
+    .sm\:m-1 {
+      margin: 0.25rem;
+    }
+    .sm\:m-2 {
+      margin: 0.5rem;
+    }
+  }
+    @media (min-width: 768px) {
+    .md\:p-1 {
+      padding: 0.25rem;
+    }
+    .md\:p-2 {
+      padding: 0.5rem;
+    }
+       .md\:m-1 {
+      margin: 0.25rem;
+    }
+    .md\:m-2 {
+      margin: 0.5rem;
+    }
+  }
+      @media (min-width: 1024px) {
+    .lg\:p-1 {
+      padding: 0.25rem;
+    }
+    .lg\:p-2 {
+      padding: 0.5rem;
+    }
+       .lg\:m-1 {
+      margin: 0.25rem;
+    }
+    .lg\:m-2 {
+      margin: 0.5rem;
+    }
   }
 }
 
