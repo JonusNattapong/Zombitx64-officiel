@@ -2,21 +2,14 @@
 
 import { Web3ReactProvider, Web3ReactHooks, initializeConnector } from '@web3-react/core';
 import { MetaMask } from '@web3-react/metamask';
-import type { Web3ProviderType } from '@/lib/web3/types';
-import React, { ReactNode, useEffect, useState } from 'react';
+import type { Web3ProviderType, Web3ProviderProps } from '@/lib/web3/types';
+import React, { ReactNode, useEffect, useState, createContext, useContext } from 'react';
 import { SolanaConnector, connectSolana } from '@/lib/web3/connectors';
 import { PublicKey } from '@solana/web3.js';
 
 declare global {
   interface Window {
-    solana?: {
-      isConnected?: boolean;
-      connect?: () => Promise<{ publicKey: PublicKey }>;
-      disconnect?: () => Promise<void>;
-      signTransaction?: (transaction: any) => Promise<any>;
-      signAllTransactions?: (transactions: any[]) => Promise<any[]>;
-      signMessage?: (message: Uint8Array) => Promise<{ signature: Uint8Array }>;
-    };
+    solana?: any;
   }
 }
 
@@ -24,85 +17,73 @@ const [metaMask, hooks] = initializeConnector<MetaMask>(
   (actions) => new MetaMask({ actions })
 );
 
-interface Web3ContextType {
-    solanaConnector: SolanaConnector | null;
-    solanaPublicKey: PublicKey | null;
-    connectSolana: () => Promise<void>;
-    disconnectSolana: () => Promise<void>;
-}
-
-export const Web3Context = React.createContext<Web3ContextType>({
-  solanaConnector: null,
-  solanaPublicKey: null,
-  connectSolana: async () => {},
-  disconnectSolana: async () => {},
+const Web3Context = createContext<Web3ProviderType>({
+  isConnected: false,
+  publicKey: null,
+  connector: null,
+  connect: async () => {},
+  disconnect: async () => {},
 });
 
-export function Web3ProviderWrapper({ children }: { children: ReactNode }) {
-  const [mounted, setMounted] = useState(false);
-  const [solanaConnector, setSolanaConnector] = useState<SolanaConnector | null>(null);
-  const [solanaPublicKey, setSolanaPublicKey] = useState<PublicKey | null>(null);
+export function useWeb3() {
+  return useContext(Web3Context);
+}
 
-    useEffect(() => {
-        setMounted(true);
-    }, []);
+export function Web3Provider({ children }: Web3ProviderProps) {
+  const [isConnected, setIsConnected] = useState(false);
+  const [publicKey, setPublicKey] = useState<PublicKey | null>(null);
+  const [connector, setConnector] = useState<SolanaConnector | null>(null);
+
+  const connect = async () => {
+    try {
+      const { publicKey: pk, connector: conn } = await connectSolana();
+      setPublicKey(pk);
+      setConnector(conn);
+      setIsConnected(true);
+    } catch (error) {
+      console.error('Error connecting to wallet:', error);
+      setIsConnected(false);
+    }
+  };
+
+  const disconnect = async () => {
+    try {
+      if (connector) {
+        await connector.disconnect();
+      }
+      setPublicKey(null);
+      setConnector(null);
+      setIsConnected(false);
+    } catch (error) {
+      console.error('Error disconnecting wallet:', error);
+    }
+  };
 
   useEffect(() => {
-    const handleConnect = async () => {
-      if (window.solana?.isConnected) {
-        try {
-          const connector = await connectSolana();
-          setSolanaConnector(connector);
-          setSolanaPublicKey(connector.getPublicKey());
-        } catch (error) {
-          console.error('Failed to reconnect to Solana:', error);
-        }
+    // ตรวจสอบการเชื่อมต่อที่มีอยู่เมื่อโหลดหน้า
+    const checkExistingConnection = async () => {
+      if (window.solana?.isPhantom) {
+        await connect();
       }
     };
 
-    if (mounted) {
-      handleConnect();
-    }
-  }, [mounted]);
+    checkExistingConnection();
 
-
-    const handleConnectSolana = async () => {
-        try {
-            const connector = await connectSolana();
-            setSolanaConnector(connector);
-            setSolanaPublicKey(connector.getPublicKey());
-        } catch (error) {
-            console.error('Failed to connect to Solana:', error);
-        }
+    return () => {
+      // Cleanup เมื่อ component unmount
+      disconnect();
     };
+  }, []);
 
-    const handleDisconnectSolana = async () => {
-      if (solanaConnector) {
-        await solanaConnector.disconnect();
-        setSolanaConnector(null);
-        setSolanaPublicKey(null);
-      }
-    };
+  const value = {
+    isConnected,
+    publicKey,
+    connector,
+    connect,
+    disconnect,
+  };
 
-
-    if (!mounted) {
-        return null;
-    }
-
-  return (
-    <Web3ReactProvider connectors={[[metaMask, hooks]]}>
-      <Web3Context.Provider
-        value={{
-          solanaConnector,
-          solanaPublicKey,
-          connectSolana: handleConnectSolana,
-          disconnectSolana: handleDisconnectSolana
-        }}
-      >
-        {children}
-      </Web3Context.Provider>
-    </Web3ReactProvider>
-  );
+  return <Web3Context.Provider value={value}>{children}</Web3Context.Provider>;
 }
 
 // Export MetaMask connector and context
