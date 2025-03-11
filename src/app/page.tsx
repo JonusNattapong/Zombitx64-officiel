@@ -22,7 +22,7 @@ export default function Home() {
                 <Link href="/marketplace">Explore Marketplace</Link>
               </Button>
               <Button variant="outline" size="lg" asChild>
-                <Link href="/learn">Start Learning</Link>
+                <Link href="/aboutmarket">About Marketplace</Link>
               </Button>
             </div>
           </div>
@@ -45,28 +45,6 @@ export default function Home() {
               </CardHeader>
               <CardContent>
                 Browse through a curated collection of AI resources, from pre-trained models to custom datasets.
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle>AI Challenges</CardTitle>
-                <CardDescription>
-                  Compete and learn with the community
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                Participate in AI challenges, hackathons, and competitions to improve your skills.
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle>Learning Hub</CardTitle>
-                <CardDescription>
-                  Comprehensive AI learning resources
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                Access tutorials, courses, and documentation to master AI development.
               </CardContent>
             </Card>
           </div>
