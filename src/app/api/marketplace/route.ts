@@ -1,52 +1,61 @@
-import { NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import prisma from '@/lib/db'
-import { authOptions } from '@/app/api/auth/[...nextauth]/route'
-import { Prisma, Product } from '@prisma/client'
+import { NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { prisma } from '@/lib/db'; // Corrected import
+import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+import { Prisma, Product } from '@prisma/client';
 
 interface ProductWithOwner extends Product {
   owner: {
-    id: string
-    name: string | null
-    image: string | null
-  }
+    id: string;
+    name: string | null;
+    image: string | null;
+  };
 }
 
 export async function GET(req: Request) {
   try {
-    const { searchParams } = new URL(req.url)
-    const category = searchParams.get('category')
-    const search = searchParams.get('search')
-    const sort = searchParams.get('sort') || 'latest'
-    const page = parseInt(searchParams.get('page') || '1')
-    const limit = parseInt(searchParams.get('limit') || '12')
-    const skip = (page - 1) * limit
+    const { searchParams } = new URL(req.url);
+    const category = searchParams.get('category');
+    const search = searchParams.get('search');
+    const sort = searchParams.get('sort') || 'latest';
+    const page = parseInt(searchParams.get('page') || '1');
+    const limit = parseInt(searchParams.get('limit') || '12');
+    const skip = (page - 1) * limit;
+    const productType = searchParams.get('productType'); // Add productType
 
     // Build where clause
-    const where: Prisma.ProductWhereInput = {}
+    const where: Prisma.ProductWhereInput = {};
 
     if (category) {
-      where.category = category
+      where.category = {
+        equals: category.toLowerCase(),
+      };
     }
 
     if (search) {
       where.OR = [
-        { title: { contains: search } },
-        { description: { contains: search } }
-      ]
+        { title: { contains: search, mode: 'insensitive' } },
+        { description: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    if (productType) {
+      where.productType = {
+        equals: productType, // Filter by productType
+      };
     }
 
     // Build order by
-    let orderBy: Prisma.ProductOrderByWithRelationInput = {}
+    let orderBy: Prisma.ProductOrderByWithRelationInput = {};
     switch (sort) {
       case 'price_asc':
-        orderBy = { price: 'asc' }
-        break
+        orderBy = { price: 'asc' };
+        break;
       case 'price_desc':
-        orderBy = { price: 'desc' }
-        break
+        orderBy = { price: 'desc' };
+        break;
       default:
-        orderBy = { createdAt: 'desc' }
+        orderBy = { createdAt: 'desc' };
     }
 
     // Fetch products and count
@@ -61,49 +70,48 @@ export async function GET(req: Request) {
             select: {
               id: true,
               name: true,
-              image: true
-            }
-          }
-        }
+              image: true,
+            },
+          },
+        },
       }),
-      prisma.product.count({ where })
-    ])
+      prisma.product.count({ where }),
+    ]);
 
     // Format response
-    const formattedProducts = products.map((product) => ({
+    const formattedProducts = products.map((product: ProductWithOwner) => ({
       ...product,
       metrics: product.metrics ? JSON.parse(product.metrics) : null,
-      extendedMetrics: product.extendedMetrics ? JSON.parse(product.extendedMetrics) : null
-    }))
+      extendedMetrics: product.extendedMetrics
+        ? JSON.parse(product.extendedMetrics)
+        : null,
+    }));
 
     return NextResponse.json({
       products: formattedProducts,
       pagination: {
         total,
         pages: Math.ceil(total / limit),
-        current: page
-      }
-    })
+        current: page,
+      },
+    });
   } catch (error) {
-    console.error('Marketplace GET error:', error)
+    console.error('Marketplace GET error:', error);
     return NextResponse.json(
       { error: 'Failed to fetch products' },
       { status: 500 }
-    )
+    );
   }
 }
 
 export async function POST(req: Request) {
   try {
-    const session = await getServerSession(authOptions)
+    const session = await getServerSession(authOptions);
     if (!session?.user) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      )
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const data = await req.json()
+    const data = await req.json();
     const {
       title,
       description,
@@ -112,15 +120,17 @@ export async function POST(req: Request) {
       category,
       tags,
       metrics,
-      extendedMetrics
-    } = data
+      extendedMetrics,
+      productType, // Add productType
+      datasetId, // Add datasetId
+    } = data;
 
     // Validate required fields
     if (!title || !description || !price || !fileHash || !category) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
-      )
+      );
     }
 
     // Create product
@@ -131,13 +141,20 @@ export async function POST(req: Request) {
         price,
         fileHash,
         category,
-        tags: typeof tags === 'string' ? tags : Array.isArray(tags) ? tags.join(',') : '',
+        productType, // Include productType
+        datasetId,   // Include datasetId
+        tags:
+          typeof tags === 'string'
+            ? tags
+            : Array.isArray(tags)
+            ? tags.join(',')
+            : '',
         metrics: metrics ? JSON.stringify(metrics) : null,
         extendedMetrics: extendedMetrics ? JSON.stringify(extendedMetrics) : null,
         version: '1.0.0',
-        ownerId: session.user.id
-      }
-    })
+        ownerId: session.user.id,
+      },
+    });
 
     // Create notification
     await prisma.notification.create({
@@ -146,16 +163,16 @@ export async function POST(req: Request) {
         type: 'product_created',
         title: 'Product Created',
         content: `Created product: ${title}`,
-        data: JSON.stringify({ productId: product.id })
-      }
-    })
+        data: JSON.stringify({ productId: product.id }),
+      },
+    });
 
-    return NextResponse.json(product)
+    return NextResponse.json(product);
   } catch (error) {
-    console.error('Marketplace POST error:', error)
+    console.error('Marketplace POST error:', error);
     return NextResponse.json(
       { error: 'Failed to create product' },
       { status: 500 }
-    )
+    );
   }
 }

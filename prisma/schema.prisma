@@ -37,6 +37,7 @@ model User {
   twoFactorEnabled  Boolean          @default(false)
   reviews          Review[]          @relation("UserReviews")
   receivedReviews  Review[]          @relation("ReceivedReviews")
+  buyerReviews     Review[]          @relation("BuyerReviews")
   passwordResets   password_reset[]
   datasets         Dataset[]
 }
@@ -83,6 +84,8 @@ model Session {
 model UserSettings {
   id String @id @default(cuid())
   userId String @unique
+  promptpayId String?
+  currency String @default("THB")
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
@@ -115,9 +118,13 @@ model Product {
   tags String?
   ownerId String
   owner User @relation("CreatedProducts", fields: [ownerId], references: [id])
-  transactions Transaction[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  transactions  Transaction[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  datasetId     String?       @unique
+  productType   String // Added productType
+  dataset       Dataset?      @relation(fields: [datasetId], references: [id])
+  promotions    Promotion[]   @relation("ProductPromotions")
 
   @@index([title])
   @@index([category])
@@ -131,6 +138,26 @@ model Transaction {
   buyer User @relation("Purchases", fields: [buyerId], references: [id])
   seller User @relation("Sales", fields: [sellerId], references: [id])
   product Product @relation(fields: [productId], references: [id])
+  amount Float
+  buyerFee Float
+  sellerFee Float
+  totalAmount Float
+  status TransactionStatus @default(pending)
+  paymentMethod PaymentMethod
+  transactionHash String?
+}
+
+enum TransactionStatus {
+  pending
+  completed
+  failed
+  refunded
+}
+
+enum PaymentMethod {
+    credit_card
+    omise
+    bank_transfer
 }
 
 model Challenge {
@@ -172,13 +199,18 @@ model ApiUsage {
 }
 
 model Review {
-  id String @id @default(cuid())
-  reviewerId String
-  revieweeId String
-  rating Int
-  comment String
-  reviewer User @relation("UserReviews", fields: [reviewerId], references: [id])
-  reviewee User @relation("ReceivedReviews", fields: [revieweeId], references: [id])
+  id          String   @id @default(cuid())
+  reviewerId  String
+  revieweeId  String
+  rating      Int
+  comment     String
+  verified    Boolean  @default(false)
+  helpful     Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  reviewer    User     @relation("UserReviews", fields: [reviewerId], references: [id])
+  reviewee    User     @relation("ReceivedReviews", fields: [revieweeId], references: [id])
+  buyer       User     @relation("BuyerReviews", fields: [reviewerId], references: [id])
 }
 
 model Dataset {
@@ -191,8 +223,9 @@ model Dataset {
   metadata    String?  // JSON string for additional metadata
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  product       Product?
 
   @@index([title])
   @@index([userId])
@@ -208,4 +241,30 @@ model DatasetFile {
   createdAt DateTime @default(now())
 
   @@index([datasetId])
+}
+
+model Promotion {
+  id            String    @id @default(cuid())
+  productId     String?
+  category      String?
+  startDate     DateTime
+  endDate       DateTime
+  status        PromotionStatus
+  discountType  DiscountType
+  discountValue Float
+  products      Product[]   @relation("ProductPromotions")
+
+  @@index([productId])
+  @@index([category])
+}
+
+enum PromotionStatus {
+  ACTIVE
+  INACTIVE
+  SCHEDULED
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED
 }
