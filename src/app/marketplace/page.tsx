@@ -6,6 +6,8 @@ import {
     CardHeader,
     CardTitle,
 } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Plus } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
     Select,
@@ -19,6 +21,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { formatCurrency } from "@/lib/utils";
 import { ProductWithOwner } from "@/types/marketplace";
+import { SearchFilters } from "@/components/marketplace/search-filters";
 
 interface Product {
     id: string;
@@ -39,13 +42,11 @@ interface Product {
 }
 
 const categories = [
-    "AI Models",
     "Datasets",
-    "Tools",
+    "Models",
     "APIs",
-    "Plugins",
-    "Documentation",
-    // Removed duplicate "Datasets" entry
+    "Tools",
+    "Services",
 ];
 
 function ProductSkeleton() {
@@ -192,62 +193,22 @@ export default function MarketplacePage({
 }) {
     return (
         <div className="container py-6 space-y-6">
-            <h1 className="text-3xl font-bold">Marketplace</h1>
+            <div className="flex justify-between items-center">
+                <h1 className="text-3xl font-bold">Marketplace</h1>
+                <Link href="/marketplace/add-product">
+                    <Button>
+                        <Plus className="w-4 h-4 mr-2" />
+                        Add Product
+                    </Button>
+                </Link>
+            </div>
 
             {/* Filters */}
-            <div className="flex flex-col sm:flex-row gap-4">
-                <Input
-                    placeholder="Search products..."
-                    className="max-w-sm"
-                    defaultValue={searchParams.search || ""}
-                    onChange={(e) => {
-                        const url = new URL(window.location.href)
-                        url.searchParams.set('search', e.target.value)
-                        url.searchParams.delete('page')
-                        window.location.href = url.toString()
-                    }}
-                />
-                <Select
-                    defaultValue={searchParams.category?.toString()}
-                    onValueChange={(value) => {
-                        const url = new URL(window.location.href);
-                        url.searchParams.set("category", value);
-                        url.searchParams.delete("page");
-                        window.location.href = url.toString();
-                    }}
-                >
-                    <SelectTrigger className="max-w-[200px]">
-                        <SelectValue placeholder="Category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="all">All Categories</SelectItem>
-                        {categories.map((category) => (
-                            <SelectItem key={category} value={category.toLowerCase()}>
-                                {category}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-
-                <Select
-                    onValueChange={(value) => {
-                        const url = new URL(window.location.href);
-                        url.searchParams.set("sort", value);
-                        url.searchParams.delete("page");
-                        window.location.href = url.toString();
-                    }}
-                    defaultValue={searchParams.sort?.toString() || "latest"}
-                >
-                    <SelectTrigger className="max-w-[200px]">
-                        <SelectValue placeholder="Sort by" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="latest">Latest</SelectItem>
-                        <SelectItem value="price_asc">Price: Low to High</SelectItem>
-                        <SelectItem value="price_desc">Price: High to Low</SelectItem>
-                    </SelectContent>
-                </Select>
-            </div>
+            <SearchFilters
+                initialSearch={searchParams.search?.toString()}
+                initialCategory={searchParams.category?.toString()}
+                categories={categories}
+            />
 
             {/* Products Grid */}
             <Suspense fallback={<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"><ProductSkeleton /><ProductSkeleton /><ProductSkeleton /><ProductSkeleton /></div>}>

@@ -3,43 +3,48 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
 model User {
   id                String           @id @default(cuid())
   name              String?
-  email             String?          @unique
+  email             String          @unique
   emailVerified     DateTime?
   image             String?
-  password          String?
-  role              String           @default("user")
-  walletAddress     String?          @unique
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
+  password          String
+  role              String          @default("user")
+  walletAddress     String?         @unique
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
   accounts          Account[]
   sessions          Session[]
   settings          UserSettings?
   activity          ActivityLog[]
   skills            Skill[]
-  reputation        Int              @default(0)
-  products          Product[]        @relation("CreatedProducts")
-  purchases         Transaction[]    @relation("Purchases")
-  sales             Transaction[]    @relation("Sales")
-  challenges        Challenge[]      @relation("ParticipatedChallenges")
-  collaborations    Collaboration[]  @relation("UserCollaborations")
+  reputation        Int             @default(0)
+  products          Product[]       @relation("CreatedProducts")
+  boughtItems       Transaction[]   @relation("BoughtItems")
+  soldItems         Transaction[]   @relation("SoldItems")
+  challenges        Challenge[]     @relation("ParticipatedChallenges")
+  collaborations    Collaboration[] @relation("UserCollaborations")
   learningProgress  LearningProgress[]
   notifications     Notification[]
   apiUsage          ApiUsage[]
   twoFactorSecret   String?
   recoveryCodes     String?
-  twoFactorEnabled  Boolean          @default(false)
-  reviews          Review[]          @relation("UserReviews")
-  receivedReviews  Review[]          @relation("ReceivedReviews")
-  buyerReviews     Review[]          @relation("BuyerReviews")
-  passwordResets   password_reset[]
-  datasets         Dataset[]
+  twoFactorEnabled  Boolean         @default(false)
+  reviews           Review[]        @relation("UserReviews")
+  receivedReviews   Review[]        @relation("ReceivedReviews")
+  buyerReviews      Review[]        @relation("BuyerReviews")
+  passwordResets    password_reset[]
+  datasets          Dataset[]
+  nameChanges       NameChange[]
+  buyerTransactions EscrowTransaction[] @relation("BuyerTransactions")
+  sellerTransactions EscrowTransaction[] @relation("SellerTransactions")
+  initiatedDisputes Dispute[]          @relation("DisputeInitiator")
+  resolvedDisputes  Dispute[]          @relation("DisputeResolver")
 }
 
 model password_reset {
@@ -47,184 +52,220 @@ model password_reset {
   token     String   @unique
   expires   DateTime
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
-  used      Boolean  @default(false)
+  used      Boolean   @default(false)
 
   @@index([userId])
 }
 
 model Account {
-  id        String   @id @default(cuid())
-  userId    String
-  type      String
-  provider  String
+  id            String        @id @default(cuid())
+  userId        String
+  type          String
+  provider      String
   providerAccountId String
   refresh_token String?
-  access_token String?
-  expires_at Int?
-  token_type String?
-  scope String?
-  id_token String?
+  access_token  String?
+  expires_at    Int?
+  token_type    String?
+  scope         String?
+  id_token      String?
   session_state String?
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
 }
 
 model Session {
-    id           String   @id @default(cuid())
-    sessionToken String   @unique
-    userId       String
-    expires      DateTime
-    user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+    id            String        @id @default(cuid())
+    sessionToken  String        @unique
+    userId        String
+    expires       DateTime
+    user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model UserSettings {
-  id String @id @default(cuid())
-  userId String @unique
-  promptpayId String?
-  currency String @default("THB")
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id            String        @id @default(cuid())
+  userId        String        @unique
+  promptpayId   String?
+  currency      String        @default("THB")
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model ActivityLog {
-  id String @id @default(cuid())
-  userId String
-  type String
-  description String
-  createdAt DateTime @default(now())
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id            String        @id @default(cuid())
+  userId        String
+  type          String
+  description   String
+  createdAt     DateTime      @default(now())
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Skill {
-  id String @id @default(cuid())
-  userId String
-  name String
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id            String        @id @default(cuid())
+  userId        String
+  name          String
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Product {
-  id String @id @default(cuid())
-  title String
-  description String
-  price Float
-  category String
-  fileHash String
-  version String
-  metrics String?
+  id            String        @id @default(cuid())
+  name          String
+  description   String
+  price         Float
+  category      String
+  fileHash      String
+  version       String
+  metrics       String?
   extendedMetrics String?
-  tags String?
-  ownerId String
-  owner User @relation("CreatedProducts", fields: [ownerId], references: [id])
+  tags          String?
+  status        String        // AVAILABLE, PENDING_PAYMENT, SOLD
+  ownerId       String
+  owner         User          @relation("CreatedProducts", fields: [ownerId], references: [id])
   transactions  Transaction[]
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   datasetId     String?       @unique
-  productType   String // Added productType
+  productType   String        // Added productType
   dataset       Dataset?      @relation(fields: [datasetId], references: [id])
   promotions    Promotion[]   @relation("ProductPromotions")
+  currentStatus String?
+  escrowTransactions EscrowTransaction[]
 
-  @@index([title])
+  @@index([name])
   @@index([category])
 }
 
 model Transaction {
-  id String @id @default(cuid())
-  buyerId String
-  sellerId String
-  productId String
-  buyer User @relation("Purchases", fields: [buyerId], references: [id])
-  seller User @relation("Sales", fields: [sellerId], references: [id])
-  product Product @relation(fields: [productId], references: [id])
-  amount Float
-  buyerFee Float
-  sellerFee Float
-  totalAmount Float
-  status TransactionStatus @default(pending)
-  paymentMethod PaymentMethod
+  id            String          @id @default(cuid())
+  amount        Float
+  status        String        // PENDING, IN_ESCROW, COMPLETED, DISPUTED, REFUNDED, CANCELLED
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  product       Product         @relation(fields: [productId], references: [id])
+  productId     String
+  buyer         User            @relation("BoughtItems", fields: [buyerId], references: [id])
+  buyerId       String
+  seller        User            @relation("SoldItems", fields: [sellerId], references: [id])
+  sellerId      String
+  buyerFee      Float
+  sellerFee     Float
+  totalAmount   Float
+  paymentMethod String         // BLOCKCHAIN, BANK_TRANSFER, CREDIT_CARD
+  platformFee   Float
+  escrowFee     Float
   transactionHash String?
+  escrowId      String?
+  disputeStatus DisputeStatus     @default(NONE)
+  disputeReason String?
+  disputeOpenedAt DateTime?
+  disputeResolvedAt DateTime?
+  disputeResolution String?
+  disputeResolutionReason String?
+  completedAt   DateTime?
+}
+
+enum ProductStatus {
+  ACTIVE
+  INACTIVE
 }
 
 enum TransactionStatus {
-  pending
-  completed
-  failed
-  refunded
+  PENDING
+  IN_ESCROW
+  COMPLETED
+  DISPUTED
+  REFUNDED
+  CANCELLED
 }
 
 enum PaymentMethod {
-    credit_card
-    omise
-    bank_transfer
+  BLOCKCHAIN
+  BANK_TRANSFER
+  CREDIT_CARD
+}
+
+enum DisputeStatus {
+  NONE
+  PENDING
+  RESOLVED
 }
 
 model Challenge {
-  id String @id @default(cuid())
-  userId String
-  name String
-  user User @relation("ParticipatedChallenges", fields: [userId], references: [id])
+  id            String        @id @default(cuid())
+  userId        String
+  name          String
+  user          User            @relation("ParticipatedChallenges", fields: [userId], references: [id])
 }
 
 model Collaboration {
-  id String @id @default(cuid())
-  userId String
-  name String
-  user User @relation("UserCollaborations", fields: [userId], references: [id])
+  id            String        @id @default(cuid())
+  userId        String
+  name          String
+  user          User            @relation("UserCollaborations", fields: [userId], references: [id])
 }
 
 model LearningProgress {
-  id String @id @default(cuid())
-  userId String
-  courseId String
-  progress Float
-  completed Boolean @default(false)
-  timeSpent Int @default(0)
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id            String        @id @default(cuid())
+  userId        String
+  courseId      String
+  progress      Float
+  completed     Boolean         @default(false)
+  timeSpent     Int             @default(0)
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Notification {
-  id String @id @default(cuid())
-  userId String
-  message String
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id        String   @id @default(cuid())
+  userId    String
+  type      String
+  title     String
+  message   String
+  data      Json?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
 }
 
 model ApiUsage {
-  id String @id @default(cuid())
-  userId String
-  apiKey String
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id            String        @id @default(cuid())
+  userId        String
+  apiKey        String
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Review {
-  id          String   @id @default(cuid())
-  reviewerId  String
-  revieweeId  String
-  rating      Int
-  comment     String
-  verified    Boolean  @default(false)
-  helpful     Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  reviewer    User     @relation("UserReviews", fields: [reviewerId], references: [id])
-  reviewee    User     @relation("ReceivedReviews", fields: [revieweeId], references: [id])
-  buyer       User     @relation("BuyerReviews", fields: [reviewerId], references: [id])
+  id            String        @id @default(cuid())
+  reviewerId    String
+  revieweeId    String
+  rating        Int
+  comment       String
+  verified      Boolean         @default(false)
+  helpful       Int             @default(0)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  reviewer      User            @relation("UserReviews", fields: [reviewerId], references: [id], map: "Review_reviewer_fkey")
+  reviewee      User            @relation("ReceivedReviews", fields: [revieweeId], references: [id], map: "Review_reviewee_fkey")
+  buyer         User            @relation("BuyerReviews", fields: [reviewerId], references: [id], map: "Review_buyer_fkey")
 }
 
 model Dataset {
-  id          String   @id @default(cuid())
-  title       String
-  description String
-  coverImage  String?
-  files       DatasetFile[]
-  tags        String?
-  metadata    String?  // JSON string for additional metadata
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id            String        @id @default(cuid())
+  title         String
+  description   String
+  coverImage    String?
+  files         DatasetFile[]
+  tags          String?
+  metadata      String?       // JSON string for additional metadata
+  userId        String
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
   product       Product?
 
   @@index([title])
@@ -232,19 +273,19 @@ model Dataset {
 }
 
 model DatasetFile {
-  id        String   @id @default(cuid())
-  filename  String
-  fileType  String   // e.g., "image", "video", "gif"
-  fileUrl   String
-  datasetId String
-  dataset   Dataset  @relation(fields: [datasetId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
+  id            String        @id @default(cuid())
+  filename      String
+  fileType      String        // e.g., "image", "video", "gif"
+  fileUrl       String
+  datasetId     String
+  dataset       Dataset         @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  createdAt     DateTime        @default(now())
 
   @@index([datasetId])
 }
 
 model Promotion {
-  id            String    @id @default(cuid())
+  id            String        @id @default(cuid())
   productId     String?
   category      String?
   startDate     DateTime
@@ -252,7 +293,7 @@ model Promotion {
   status        PromotionStatus
   discountType  DiscountType
   discountValue Float
-  products      Product[]   @relation("ProductPromotions")
+  products      Product[]       @relation("ProductPromotions")
 
   @@index([productId])
   @@index([category])
@@ -267,4 +308,53 @@ enum PromotionStatus {
 enum DiscountType {
   PERCENTAGE
   FIXED
+}
+
+model NameChange {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+}
+
+model EscrowTransaction {
+  id              String    @id @default(cuid())
+  amount          Float
+  buyerId         String
+  sellerId        String
+  productId       String
+  status          String    // PENDING, COMPLETED, DISPUTED, REFUNDED
+  currency        String
+  transactionHash String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  buyer           User      @relation("BuyerTransactions", fields: [buyerId], references: [id])
+  seller          User      @relation("SellerTransactions", fields: [sellerId], references: [id])
+  product         Product   @relation(fields: [productId], references: [id])
+  dispute         Dispute?
+
+  @@index([buyerId])
+  @@index([sellerId])
+  @@index([productId])
+}
+
+model Dispute {
+  id              String            @id @default(cuid())
+  transactionId   String            @unique
+  reason          String
+  evidence        String?
+  status          String            // OPEN, RESOLVED
+  resolution      String?
+  refundAmount    Float?
+  initiatorId     String
+  resolvedById    String?
+  resolvedAt      DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  transaction     EscrowTransaction @relation(fields: [transactionId], references: [id])
+  initiator       User              @relation("DisputeInitiator", fields: [initiatorId], references: [id])
+  resolvedBy      User?             @relation("DisputeResolver", fields: [resolvedById], references: [id])
+
+  @@index([initiatorId])
+  @@index([resolvedById])
 }

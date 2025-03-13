@@ -7,10 +7,22 @@ import React, {
   useState,
   createContext,
   useContext,
+  useMemo,
 } from "react";
 import { SolanaConnector, connectSolana } from "@/lib/web3/connectors";
 import { PublicKey } from "@solana/web3.js";
-import { EvmProviderWrapper } from "./evm-provider";
+import { Web3ReactProvider } from '@web3-react/core';
+import { providers } from 'ethers';
+import {
+  ConnectionProvider,
+  WalletProvider
+} from '@solana/wallet-adapter-react';
+import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom';
+import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
+import { clusterApiUrl } from '@solana/web3.js';
+import { Web3ContextProvider } from '@/contexts/Web3Context';
+
+require('@solana/wallet-adapter-react-ui/styles.css');
 
 declare global {
   interface Window {
@@ -39,7 +51,7 @@ export function useWeb3() {
   return useContext(Web3Context);
 }
 
-function Web3Provider({ children }: Web3ProviderProps) {
+function BaseWeb3Provider({ children }: Web3ProviderProps) {
   const [solanaIsConnected, setSolanaIsConnected] = useState(false);
   const [solanaPublicKey, setSolanaPublicKey] = useState<PublicKey | null>(
     null
@@ -99,11 +111,16 @@ function Web3Provider({ children }: Web3ProviderProps) {
   return <Web3Context.Provider value={value}>{children}</Web3Context.Provider>;
 }
 
-// Export the wrapper component that combines Web3ReactProvider and Web3Provider
-export function Web3ProviderWrapper({ children }: Web3ProviderProps) {
+function getLibrary(provider: any) {
+  const library = new providers.Web3Provider(provider);
+  library.pollingInterval = 12000;
+  return library;
+}
+
+export function Web3ProviderWrapper({ children }: { children: React.ReactNode }) {
   return (
-      <EvmProviderWrapper>
-          <Web3Provider>{children}</Web3Provider>
-      </EvmProviderWrapper>
+    <Web3ContextProvider>
+      {children}
+    </Web3ContextProvider>
   );
 }
