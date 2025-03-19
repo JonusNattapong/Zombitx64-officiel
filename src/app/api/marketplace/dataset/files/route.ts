@@ -1,32 +1,44 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
-import { db } from "@/lib/db";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { prisma } from "@/lib/db";
+import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { v4 as uuidv4 } from "uuid";
 import crypto from "crypto";
 
-// ตั้งค่า S3 client (AWS หรือ S3-compatible service เช่น MinIO)
-const s3Client = new S3Client({
-  region: process.env.AWS_REGION || "us-east-1",
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID || "",
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || "",
-  },
-  endpoint: process.env.S3_ENDPOINT,
-  forcePathStyle: true, // จำเป็นสำหรับบางบริการเช่น MinIO
-});
+// Initialize S3 client with error handling
+let s3Client: S3Client;
+try {
+  s3Client = new S3Client({
+    region: process.env.AWS_REGION || "us-east-1",
+    credentials: {
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID || "",
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || "",
+    },
+    endpoint: process.env.S3_ENDPOINT,
+    forcePathStyle: true,
+  });
+} catch (error) {
+  console.error("Failed to initialize S3 client:", error);
+  // Will throw error when accessed if not properly initialized
+}
 
 const BUCKET_NAME = process.env.S3_BUCKET_NAME || "datasets";
+const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 
 export async function POST(req: Request) {
   try {
+    // Validate S3 configuration
+    if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY || !process.env.S3_ENDPOINT) {
+      throw new Error("S3 configuration is missing");
+    }
+
     const session = await getServerSession(authOptions);
     if (!session) {
       return NextResponse.json({ error: "ไม่ได้รับอนุญาต" }, { status: 401 });
     }
 
-    // ตรวจสอบว่าเป็น multipart/form-data
+    // Verify content type
     const contentType = req.headers.get("content-type");
     if (!contentType || !contentType.includes("multipart/form-data")) {
       return NextResponse.json(
@@ -46,8 +58,16 @@ export async function POST(req: Request) {
       );
     }
 
-    // ตรวจสอบว่า dataset มีอยู่จริงและเป็นของผู้ใช้ที่ login อยู่
-    const dataset = await db.dataset.findUnique({
+    // Validate file size
+    if (file.size > MAX_FILE_SIZE) {
+      return NextResponse.json(
+        { error: "ขนาดไฟล์ต้องไม่เกิน 100MB" },
+        { status: 400 }
+      );
+    }
+
+    // Check dataset ownership
+    const dataset = await prisma.dataset.findUnique({
       where: {
         id: datasetId,
         userId: session.user.id,
@@ -61,20 +81,33 @@ export async function POST(req: Request) {
       );
     }
 
-    // อ่านข้อมูลไฟล์
+    // Read and hash file
     const fileBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(fileBuffer);
-
-    // สร้าง hash สำหรับไฟล์เพื่อป้องกันการอัปโหลดซ้ำ
     const fileHash = crypto.createHash("md5").update(buffer).digest("hex");
 
-    // กำหนดชื่อไฟล์ใหม่เพื่อป้องกันการซ้ำกัน
+    // Check for duplicate files
+    const existingFile = await prisma.datasetFile.findFirst({
+      where: {
+        datasetId,
+        fileHash,
+      },
+    });
+
+    if (existingFile) {
+      return NextResponse.json(
+        { error: "ไฟล์นี้ถูกอัปโหลดไปแล้ว" },
+        { status: 409 }
+      );
+    }
+
+    // Generate unique filename
     const originalName = file.name;
     const fileExtension = originalName.split(".").pop();
     const fileName = `${uuidv4()}.${fileExtension}`;
     const filePath = `datasets/${datasetId}/${fileName}`;
 
-    // อัปโหลดไฟล์ไปยัง S3
+    // Upload to S3
     const uploadParams = {
       Bucket: BUCKET_NAME,
       Key: filePath,
@@ -82,13 +115,17 @@ export async function POST(req: Request) {
       ContentType: file.type,
     };
 
-    await s3Client.send(new PutObjectCommand(uploadParams));
+    try {
+      await s3Client.send(new PutObjectCommand(uploadParams));
+    } catch (s3Error) {
+      console.error("S3 upload error:", s3Error);
+      throw new Error("ไม่สามารถอัปโหลดไฟล์ไปยัง storage ได้");
+    }
 
-    // สร้างลิงก์สำหรับเข้าถึงไฟล์
     const fileUrl = `${process.env.S3_PUBLIC_URL || ""}/${BUCKET_NAME}/${filePath}`;
 
-    // บันทึกข้อมูลไฟล์ลงใน database
-    const datasetFile = await db.datasetFile.create({
+    // Create file record in database
+    const datasetFile = await prisma.datasetFile.create({
       data: {
         datasetId,
         filename: originalName,
@@ -104,11 +141,12 @@ export async function POST(req: Request) {
       },
     });
 
-    // อัพเดท dataset ให้มีการเชื่อมโยงกับไฟล์
-    await db.dataset.update({
+    // Update dataset
+    await prisma.dataset.update({
       where: { id: datasetId },
       data: {
         updatedAt: new Date(),
+        status: "PROCESSING", // Add status to track processing state
       },
     });
 
@@ -126,8 +164,8 @@ export async function POST(req: Request) {
   } catch (error: any) {
     console.error("Error uploading file:", error);
     return NextResponse.json(
-      { error: "เกิดข้อผิดพลาดในการอัปโหลดไฟล์" },
-      { status: 500 }
+      { error: error.message || "เกิดข้อผิดพลาดในการอัปโหลดไฟล์" },
+      { status: error.status || 500 }
     );
   }
 }
@@ -149,8 +187,7 @@ export async function DELETE(req: Request) {
       );
     }
 
-    // ตรวจสอบว่าไฟล์มีอยู่จริงและเป็นของผู้ใช้ที่ login อยู่
-    const file = await db.datasetFile.findUnique({
+    const file = await prisma.datasetFile.findUnique({
       where: {
         id: fileId,
       },
@@ -167,7 +204,6 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: "ไม่พบไฟล์" }, { status: 404 });
     }
 
-    // ตรวจสอบสิทธิ์
     if (file.dataset.userId !== session.user.id && session.user.role !== "ADMIN") {
       return NextResponse.json(
         { error: "คุณไม่มีสิทธิ์ในการลบไฟล์นี้" },
@@ -175,7 +211,7 @@ export async function DELETE(req: Request) {
       );
     }
 
-    // ลบไฟล์จาก S3
+    // Delete from S3
     try {
       await s3Client.send(
         new DeleteObjectCommand({
@@ -185,11 +221,10 @@ export async function DELETE(req: Request) {
       );
     } catch (s3Error) {
       console.error("Error deleting file from S3:", s3Error);
-      // ไม่ return error เพื่อให้สามารถลบข้อมูลในฐานข้อมูลได้
     }
 
-    // ลบข้อมูลไฟล์จากฐานข้อมูล
-    await db.datasetFile.delete({
+    // Delete from database
+    await prisma.datasetFile.delete({
       where: {
         id: fileId,
       },

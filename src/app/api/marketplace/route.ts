@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { prisma } from '@/lib/db'; // Corrected import
+import { prisma } from '@/lib/db';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Prisma, Product } from '@prisma/client';
 
@@ -21,28 +21,24 @@ export async function GET(req: Request) {
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '12');
     const skip = (page - 1) * limit;
-    const productType = searchParams.get('productType'); // Add productType
+    const productType = searchParams.get('productType');
 
     // Build where clause
     const where: Prisma.ProductWhereInput = {};
 
     if (category) {
-      where.category = {
-        equals: category.toLowerCase(),
-      };
+      where.category = category.toLowerCase();
     }
 
     if (search) {
       where.OR = [
-        { title: { contains: search, mode: 'insensitive' } },
-        { description: { contains: search, mode: 'insensitive' } },
+        { name: { contains: search } },
+        { description: { contains: search } },
       ];
     }
 
     if (productType) {
-      where.productType = {
-        equals: productType, // Filter by productType
-      };
+      where.productType = productType;
     }
 
     // Build order by
@@ -113,7 +109,7 @@ export async function POST(req: Request) {
 
     const data = await req.json();
     const {
-      title,
+      name,
       description,
       price,
       fileHash,
@@ -121,12 +117,12 @@ export async function POST(req: Request) {
       tags,
       metrics,
       extendedMetrics,
-      productType, // Add productType
-      datasetId, // Add datasetId
+      productType,
+      datasetId,
     } = data;
 
     // Validate required fields
-    if (!title || !description || !price || !fileHash || !category) {
+    if (!name || !description || !price || !fileHash || !category) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
@@ -136,23 +132,19 @@ export async function POST(req: Request) {
     // Create product
     const product = await prisma.product.create({
       data: {
-        title,
+        name,
         description,
         price,
         fileHash,
-        category,
-        productType, // Include productType
-        datasetId,   // Include datasetId
-        tags:
-          typeof tags === 'string'
-            ? tags
-            : Array.isArray(tags)
-            ? tags.join(',')
-            : '',
+        category: category.toLowerCase(),
+        productType,
+        datasetId,
+        tags: typeof tags === 'string' ? tags : Array.isArray(tags) ? tags.join(',') : '',
         metrics: metrics ? JSON.stringify(metrics) : null,
         extendedMetrics: extendedMetrics ? JSON.stringify(extendedMetrics) : null,
         version: '1.0.0',
         ownerId: session.user.id,
+        status: 'AVAILABLE'
       },
     });
 
@@ -162,8 +154,9 @@ export async function POST(req: Request) {
         userId: session.user.id,
         type: 'product_created',
         title: 'Product Created',
-        content: `Created product: ${title}`,
+        message: `Created product: ${name}`,
         data: JSON.stringify({ productId: product.id }),
+        read: false,
       },
     });
 

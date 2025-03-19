@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
-import { db } from "@/lib/db";
+import { prisma } from "@/lib/db";
+import { randomBytes } from "crypto";
 
 export async function POST(req: Request) {
   try {
@@ -12,7 +13,7 @@ export async function POST(req: Request) {
     }
 
     const {
-      title,
+      name,
       description,
       price,
       category,
@@ -23,7 +24,7 @@ export async function POST(req: Request) {
       version = "1.0",
     } = await req.json();
 
-    if (!title || !description || price === undefined || !category || !datasetId) {
+    if (!name || !description || price === undefined || !category || !datasetId) {
       return NextResponse.json(
         { error: "กรุณากรอกข้อมูลที่จำเป็นให้ครบถ้วน" },
         { status: 400 }
@@ -31,7 +32,7 @@ export async function POST(req: Request) {
     }
 
     // ตรวจสอบว่า dataset มีอยู่จริงและเป็นของผู้ใช้ที่ login
-    const dataset = await db.dataset.findUnique({
+    const dataset = await prisma.dataset.findUnique({
       where: {
         id: datasetId,
         userId: session.user.id,
@@ -47,36 +48,37 @@ export async function POST(req: Request) {
 
     // สร้างสินค้าใหม่
     const productType = price > 0 ? (pricingModel === "subscription" ? "subscription" : "paid") : "free";
-    
-    const product = await db.product.create({
+    const fileHash = randomBytes(32).toString('hex');
+
+    const product = await prisma.product.create({
       data: {
-        title,
+        name,
         description,
         price,
         category,
-        tags: tags || [],
+        fileHash,
+        tags: typeof tags === 'string' ? tags : Array.isArray(tags) ? tags.join(',') : '',
         ownerId: session.user.id,
         datasetId,
         productType,
         version,
-        status: "ACTIVE",
+        status: "AVAILABLE",
         metrics: JSON.stringify({
-          files: await db.datasetFile.count({ where: { datasetId } }),
-          sizes: await db.datasetFile.aggregate({
-            where: { datasetId },
-            _sum: { fileSize: true },
-          }),
+          files: await prisma.datasetFile.count({ where: { datasetId } }),
           uploadDate: new Date(),
         }),
       },
     });
 
-    // อัพเดท dataset เพื่อเชื่อมโยงกับสินค้า
-    await db.dataset.update({
-      where: { id: datasetId },
+    await prisma.notification.create({
       data: {
-        productId: product.id,
-      },
+        userId: session.user.id,
+        type: 'product_created',
+        title: 'Product Created',
+        message: `Created product: ${name}`,
+        data: JSON.stringify({ productId: product.id }),
+        read: false
+      }
     });
 
     return NextResponse.json({
@@ -107,12 +109,10 @@ export async function GET(req: Request) {
     const ownerId = searchParams.get("ownerId");
     const productType = searchParams.get("productType");
 
-    // คำนวณ skip สำหรับการแบ่งหน้า
     const skip = (page - 1) * limit;
 
-    // สร้าง query
     let whereClause: any = {
-      status: "ACTIVE", // แสดงเฉพาะสินค้าที่เปิดใช้งาน
+      status: "AVAILABLE",
       price: {
         gte: minPrice,
         lte: maxPrice,
@@ -120,7 +120,7 @@ export async function GET(req: Request) {
     };
 
     if (category) {
-      whereClause.category = category;
+      whereClause.category = category.toLowerCase();
     }
 
     if (productType) {
@@ -134,48 +134,38 @@ export async function GET(req: Request) {
     if (search) {
       whereClause.OR = [
         {
-          title: {
+          name: {
             contains: search,
-            mode: "insensitive",
           },
         },
         {
           description: {
             contains: search,
-            mode: "insensitive",
           },
         },
         {
           tags: {
-            has: search,
+            contains: search,
           },
         },
       ];
     }
 
-    // สร้างตัวเรียงลำดับ
     let orderBy: any = {};
     switch (sortBy) {
       case "price":
         orderBy.price = sortOrder;
         break;
-      case "sales":
-        orderBy.sales = sortOrder;
-        break;
-      case "rating":
-        orderBy.rating = sortOrder;
-        break;
-      case "title":
-        orderBy.title = sortOrder;
+      case "name":
+        orderBy.name = sortOrder;
         break;
       case "createdAt":
       default:
         orderBy.createdAt = sortOrder;
     }
 
-    // ดึงข้อมูลสินค้า
     const [products, totalCount] = await Promise.all([
-      db.product.findMany({
+      prisma.product.findMany({
         where: whereClause,
         include: {
           owner: {
@@ -198,42 +188,24 @@ export async function GET(req: Request) {
               },
             },
           },
-          _count: {
-            select: {
-              reviews: true,
-            },
-          },
         },
         orderBy,
         skip,
         take: limit,
       }),
-      db.product.count({
+      prisma.product.count({
         where: whereClause,
       }),
     ]);
 
-    // คำนวณคะแนนเฉลี่ยสำหรับแต่ละสินค้า
-    const productsWithRating = await Promise.all(
-      products.map(async (product) => {
-        const avgRating = await db.review.aggregate({
-          where: { revieweeId: product.id },
-          _avg: { rating: true },
-        });
-
-        return {
-          ...product,
-          avgRating: avgRating._avg.rating || 0,
-          reviewCount: product._count.reviews,
-        };
-      })
-    );
-
-    // คำนวณจำนวนหน้าทั้งหมด
     const totalPages = Math.ceil(totalCount / limit);
 
     return NextResponse.json({
-      products: productsWithRating,
+      products: products.map(product => ({
+        ...product,
+        metrics: product.metrics ? JSON.parse(product.metrics) : null,
+        tags: product.tags ? product.tags.split(',') : []
+      })),
       pagination: {
         page,
         limit,
@@ -241,18 +213,18 @@ export async function GET(req: Request) {
         totalPages,
       },
       filters: {
-        categories: await db.product.groupBy({
+        categories: await prisma.product.groupBy({
           by: ["category"],
-          where: { status: "ACTIVE" },
+          where: { status: "AVAILABLE" },
           _count: true,
         }),
         priceRange: {
-          min: await db.product.aggregate({
-            where: { status: "ACTIVE" },
+          min: await prisma.product.aggregate({
+            where: { status: "AVAILABLE" },
             _min: { price: true },
           }),
-          max: await db.product.aggregate({
-            where: { status: "ACTIVE" },
+          max: await prisma.product.aggregate({
+            where: { status: "AVAILABLE" },
             _max: { price: true },
           }),
         },

@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -13,7 +13,7 @@ model User {
   email             String          @unique
   emailVerified     DateTime?
   image             String?
-  password          String
+  password          String?
   role              String          @default("user")
   walletAddress     String?         @unique
   createdAt         DateTime        @default(now())
@@ -249,9 +249,9 @@ model Review {
   helpful       Int             @default(0)
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
-  reviewer      User            @relation("UserReviews", fields: [reviewerId], references: [id], map: "Review_reviewer_fkey")
-  reviewee      User            @relation("ReceivedReviews", fields: [revieweeId], references: [id], map: "Review_reviewee_fkey")
-  buyer         User            @relation("BuyerReviews", fields: [reviewerId], references: [id], map: "Review_buyer_fkey")
+  reviewer      User            @relation("UserReviews", fields: [reviewerId], references: [id])
+  reviewee      User            @relation("ReceivedReviews", fields: [revieweeId], references: [id])
+  buyer         User            @relation("BuyerReviews", fields: [reviewerId], references: [id])
 }
 
 model Dataset {
@@ -266,6 +266,7 @@ model Dataset {
   user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
+  status        String       @default("PENDING")
   product       Product?
 
   @@index([title])
@@ -277,11 +278,16 @@ model DatasetFile {
   filename      String
   fileType      String        // e.g., "image", "video", "gif"
   fileUrl       String
+  fileSize      Int          @default(0)
+  filePath      String
+  fileHash      String
+  metadata      String?
   datasetId     String
   dataset       Dataset         @relation(fields: [datasetId], references: [id], onDelete: Cascade)
   createdAt     DateTime        @default(now())
 
   @@index([datasetId])
+  @@index([fileHash])
 }
 
 model Promotion {
@@ -357,4 +363,30 @@ model Dispute {
 
   @@index([initiatorId])
   @@index([resolvedById])
+}
+
+model Ebook {
+  id               String   @id @default(uuid())
+  title            String
+  description      String
+  category         String
+  tags             String[]
+  language         String
+  author           String
+  publishYear      String?
+  publisher        String?
+  isbn             String?
+  pages            String?
+  tableOfContents  String?
+  sampleContent    String?
+  coverImage       String?
+  fileUrl          String?
+  previewUrl       String?
+  visibility       String
+  licenseType      String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  userId           String
+  // Relation to Product if needed
+  product          Product? @relation(fields: [userId], references: [id])
 }

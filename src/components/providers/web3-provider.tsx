@@ -21,7 +21,7 @@ import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom';
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
 import { clusterApiUrl } from '@solana/web3.js';
 import { Web3ContextProvider } from '@/contexts/Web3Context';
-
+import { useCallback } from 'react';
 require('@solana/wallet-adapter-react-ui/styles.css');
 
 declare global {
@@ -73,7 +73,7 @@ function BaseWeb3Provider({ children }: Web3ProviderProps) {
     }
   };
 
-  const handleSolanaDisconnect = async () => {
+  const handleSolanaDisconnect = useCallback(async () => {
     try {
       if (solanaConnector) {
         await solanaConnector.disconnect();
@@ -84,7 +84,7 @@ function BaseWeb3Provider({ children }: Web3ProviderProps) {
     } catch (error) {
       console.error("Error disconnecting Solana wallet:", error);
     }
-  };
+  }, [solanaConnector]);
 
   useEffect(() => {
     const checkExistingConnection = async () => {
@@ -98,7 +98,7 @@ function BaseWeb3Provider({ children }: Web3ProviderProps) {
     return () => {
       handleSolanaDisconnect();
     };
-  }, []);
+  }, [handleSolanaDisconnect]);
 
   const value = {
     solanaIsConnected,
