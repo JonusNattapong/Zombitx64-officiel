@@ -12,7 +12,7 @@ interface EbookReaderProps {
 }
 
 export function EbookReader({ fileUrl, fileType, title }: EbookReaderProps) {
-  const [numPages, setNumPages] = useState(null);
+  const [numPages, setNumPages] = useState<number | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
   const [scale, setScale] = useState(1.0);
 
@@ -20,7 +20,7 @@ export function EbookReader({ fileUrl, fileType, title }: EbookReaderProps) {
     setPageNumber(1);
   }, [fileUrl]);
 
-  function onDocumentLoadSuccess({ numPages }) {
+  function onDocumentLoadSuccess({ numPages }: { numPages: number }) {
     setNumPages(numPages);
   }
 
@@ -29,12 +29,12 @@ export function EbookReader({ fileUrl, fileType, title }: EbookReaderProps) {
   }
 
   function goToNextPage() {
-    setPageNumber((prevPageNumber) => Math.min(prevPageNumber + 1, numPages));
+    setPageNumber((prevPageNumber) => Math.min(prevPageNumber + 1, numPages || 1));
   }
 
-  function handlePageChange(event) {
+  function handlePageChange(event: React.ChangeEvent<HTMLInputElement>) {
     const newPageNumber = parseInt(event.target.value, 10);
-    if (newPageNumber >= 1 && newPageNumber <= numPages) {
+    if (newPageNumber >= 1 && newPageNumber <= (numPages || 1)) {
       setPageNumber(newPageNumber);
     }
   }

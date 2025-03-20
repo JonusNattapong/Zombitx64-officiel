@@ -1,10 +1,12 @@
+'use client';
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { toast } from "sonner";
-import { Loader2, Plus, X, Upload, Book, FileText } from "lucide-react";
+import { Loader2, Plus, X, Upload, Book, FileText, ChevronRight, ChevronLeft } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -49,32 +51,36 @@ const ebookSchema = z.object({
   tags: z.string(),
   language: z.string().min(1, "กรุณาเลือกภาษา"),
   author: z.string().min(1, "กรุณาระบุชื่อผู้เขียน"),
-  publishYear: z.string(),
+  publishYear: z.string().regex(/^\d{4}$/, "ปีที่พิมพ์ต้องเป็นตัวเลข 4 หลัก"),
   publisher: z.string().optional(),
   isbn: z.string().optional(),
   pages: z.string().optional(),
   tableOfContents: z.string().optional(),
   sampleContent: z.string().optional(),
   licenseType: z.string().min(1, "กรุณาเลือกประเภทลิขสิทธิ์"),
-  visibility: z.enum(["public", "private", "unlisted"]),
+  visibility: z.enum(["public", "private", "unlisted"] as const),
   pricingModel: z.enum(["one-time", "subscription", "free"]),
   subscriptionPeriod: z.string().optional(),
   price: z.number().min(0, "ราคาต้องไม่ต่ำกว่า 0"),
   allowPreview: z.boolean().default(false),
 });
 
-export function EbookUploadForm({ userId }) {
+interface EbookUploadFormProps {
+  userId: string; // Assuming userId is a string, adjust if needed
+}
+
+export function EbookUploadForm({ userId }: EbookUploadFormProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [coverImage, setCoverImage] = useState(null);
-  const [coverImagePreview, setCoverImagePreview] = useState(null);
-  const [ebookFile, setEbookFile] = useState(null);
-  const [previewFile, setPreviewFile] = useState(null);
+  const [coverImage, setCoverImage] = useState<File | null>(null);
+  const [coverImagePreview, setCoverImagePreview] = useState<string | null>(null);
+  const [ebookFile, setEbookFile] = useState<File | null>(null);
+  const [previewFile, setPreviewFile] = useState<File | null>(null);
   const [uploadStep, setUploadStep] = useState(1);
   const [activeTab, setActiveTab] = useState("basic");
   
-  const form = useForm({
+  const form = useForm<z.infer<typeof ebookSchema>>({
     resolver: zodResolver(ebookSchema),
     defaultValues: {
       title: "",
@@ -101,8 +107,8 @@ export function EbookUploadForm({ userId }) {
   const pricingModel = form.watch("pricingModel");
   const allowPreview = form.watch("allowPreview");
   
-  const handleCoverImageChange = (e) => {
-    const file = e.target.files[0];
+  const handleCoverImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
     if (!file) return;
     
     if (file.size > 5 * 1024 * 1024) {
@@ -110,20 +116,24 @@ export function EbookUploadForm({ userId }) {
       return;
     }
     
-    const fileExt = `.${file.name.split(".").pop().toLowerCase()}`;
-    if (!ACCEPTED_COVER_TYPES.includes(fileExt)) {
+    const fileExt = file?.name ? `.${file.name.split(".").pop().toLowerCase()}` : '';
+    if (!fileExt || !ACCEPTED_COVER_TYPES.includes(fileExt)) {
       toast.error(`ไฟล์ภาพปกไม่ได้รับการสนับสนุน ประเภทไฟล์ที่รองรับ: ${ACCEPTED_COVER_TYPES.join(", ")}`);
       return;
     }
     
     setCoverImage(file);
     const reader = new FileReader();
-    reader.onload = (e) => setCoverImagePreview(e.target.result);
+    reader.onload = (e: ProgressEvent<FileReader>) => {
+      if (e.target?.result) {
+        setCoverImagePreview(e.target.result as string);
+      }
+    };
     reader.readAsDataURL(file);
   };
   
-  const handleEbookFileChange = (e) => {
-    const file = e.target.files[0];
+  const handleEbookFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
     if (!file) return;
     
     if (file.size > MAX_FILE_SIZE) {
@@ -131,8 +141,8 @@ export function EbookUploadForm({ userId }) {
       return;
     }
     
-    const fileExt = `.${file.name.split(".").pop().toLowerCase()}`;
-    if (!ACCEPTED_EBOOK_TYPES.includes(fileExt)) {
+    const fileExt = file?.name ? `.${file.name.split(".").pop().toLowerCase()}` : '';
+    if (!fileExt || !ACCEPTED_EBOOK_TYPES.includes(fileExt)) {
       toast.error(`ไฟล์ E-Book ไม่ได้รับการสนับสนุน ประเภทไฟล์ที่รองรับ: ${ACCEPTED_EBOOK_TYPES.join(", ")}`);
       return;
     }
@@ -140,8 +150,8 @@ export function EbookUploadForm({ userId }) {
     setEbookFile(file);
   };
   
-  const handlePreviewFileChange = (e) => {
-    const file = e.target.files[0];
+  const handlePreviewFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
     if (!file) return;
     
     if (file.size > 10 * 1024 * 1024) {
@@ -149,8 +159,8 @@ export function EbookUploadForm({ userId }) {
       return;
     }
     
-    const fileExt = `.${file.name.split(".").pop().toLowerCase()}`;
-    if (!ACCEPTED_EBOOK_TYPES.includes(fileExt)) {
+    const fileExt = file?.name ? `.${file.name.split(".").pop().toLowerCase()}` : '';
+    if (!fileExt || !ACCEPTED_EBOOK_TYPES.includes(fileExt)) {
       toast.error(`ไฟล์ตัวอย่างไม่ได้รับการสนับสนุน ประเภทไฟล์ที่รองรับ: ${ACCEPTED_EBOOK_TYPES.join(", ")}`);
       return;
     }
@@ -158,7 +168,7 @@ export function EbookUploadForm({ userId }) {
     setPreviewFile(file);
   };
   
-  const onSubmit = async (formData) => {
+  const onSubmit = async (formData: z.infer<typeof ebookSchema>) => {
     if (!ebookFile) {
       toast.error("กรุณาอัพโหลดไฟล์ E-Book");
       return;
@@ -184,7 +194,7 @@ export function EbookUploadForm({ userId }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...formData,
-          tags: formData.tags.split(",").map(tag => tag.trim()),
+          tags: formData.tags.split(",").map((tag: string) => tag.trim()),
           userId,
         }),
       });
@@ -287,7 +297,7 @@ export function EbookUploadForm({ userId }) {
           description: formData.description,
           price: formData.price,
           category: formData.category,
-          tags: formData.tags.split(",").map(tag => tag.trim()),
+          tags: formData.tags.split(",").map((tag: string) => tag.trim()),
           productType: "ebook",
           ebookId: ebookId,
           pricingModel: formData.pricingModel,
@@ -311,7 +321,7 @@ export function EbookUploadForm({ userId }) {
       // Navigate to the product page
       router.push(`/marketplace/product-listing/${productId}`);
     } catch (error) {
-      toast.error(error.message);
+      toast.error((error as Error).message);
       setUploadStep(1);
     } finally {
       setIsSubmitting(false);
@@ -621,7 +631,7 @@ export function EbookUploadForm({ userId }) {
                   ) : (
                     <div 
                       className="border-2 border-dashed border-muted-foreground/25 rounded-md p-6 text-center cursor-pointer hover:border-primary/50 transition-colors aspect-[3/4] max-w-xs"
-                      onClick={() => document.getElementById("cover-upload").click()}
+                      onClick={() => document.getElementById("cover-upload")?.click()}
                     >
                       <div className="flex flex-col items-center justify-center h-full">
                         <Upload className="h-8 w-8 text-muted-foreground mb-2" />
@@ -645,7 +655,7 @@ export function EbookUploadForm({ userId }) {
                   <p className="text-sm font-medium mb-2">ไฟล์ E-Book</p>
                   
                   <div className="border-2 border-dashed border-muted-foreground/25 rounded-md p-6 text-center cursor-pointer hover:border-primary/50 transition-colors mb-4"
-                    onClick={() => document.getElementById("ebook-upload").click()}
+                    onClick={() => document.getElementById("ebook-upload")?.click()}
                   >
                     <div className="flex flex-col items-center">
                       <Book className="h-8 w-8 text-muted-foreground mb-2" />
@@ -709,7 +719,7 @@ export function EbookUploadForm({ userId }) {
                     <p className="text-sm font-medium mb-2">ไฟล์ตัวอย่าง</p>
                     
                     <div className="border-2 border-dashed border-muted-foreground/25 rounded-md p-6 text-center cursor-pointer hover:border-primary/50 transition-colors mb-4"
-                      onClick={() => document.getElementById("preview-upload").click()}
+                      onClick={() => document.getElementById("preview-upload")?.click()}
                     >
                       <div className="flex flex-col items-center">
                         <FileText className="h-8 w-8 text-muted-foreground mb-2" />
@@ -901,7 +911,7 @@ export function EbookUploadForm({ userId }) {
               </div>
             </Card>
             
-            <div className="flex justify-end gap-4"></div>
+            <div className="flex justify-end gap-4">
               <Button type="button" variant="outline" onClick={() => router.back()}>
                 ยกเลิก
               </Button>

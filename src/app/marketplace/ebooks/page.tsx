@@ -1,7 +1,8 @@
 import Link from "next/link";
 import Image from "next/image";
 import { Book, Filter, Search } from "lucide-react";
-import { db } from "@/lib/db";
+import { db } from "@/lib/db"; // Fix import to use { db } instead of default import
+import { Prisma } from "@prisma/client"; // Better typing with Prisma namespace
 import { formatCurrency } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -26,22 +27,56 @@ export const metadata = {
   description: "Browse and purchase e-books from our marketplace",
 };
 
-interface EbooksPageProps {
-  searchParams: { [key: string]: string | string[] | undefined };
+// Updated type to match Prisma schema
+type ProductWithDetails = {
+  id: string;
+  title: string; // Changed from 'name' to 'title' to match schema
+  description: string;
+  price: number;
+  category: string;
+  owner: {
+    name: string | null;
+    image: string | null;
+  };
+  ebook: {
+    coverImage: string | null;
+  } | null;
+  dataset: {
+    coverImage: string | null;
+  } | null;
+  _count: {
+    transactions: number;
+  };
+};
+
+interface GetEbooksResponse {
+  ebooks: ProductWithDetails[];
+  totalPages: number;
+  currentPage: number;
 }
 
-async function getEbooks(searchParams) {
-  const query = searchParams.q || "";
-  const category = searchParams.category || "";
-  const sortBy = searchParams.sort || "newest";
+interface EbooksPageProps {
+  searchParams: { 
+    [key: string]: string | string[] | undefined;
+    page?: string;
+    limit?: string;
+  };
+}
 
-  // Create base query
+async function getEbooks(searchParams: EbooksPageProps['searchParams']): Promise<GetEbooksResponse> {
+  const query = searchParams.q?.toString() || "";
+  const category = searchParams.category?.toString() || "";
+  const sortBy = searchParams.sort?.toString() || "newest";
+  const page = parseInt(searchParams.page?.toString() || "1", 10);
+  const limit = parseInt(searchParams.limit?.toString() || "12", 10);
+  const skip = (page - 1) * limit;
+
   const where = {
-    productType: "ebook",
-    status: "PUBLISHED",
+    productType: "EBOOK", // Updated to uppercase to match enum values
+    status: "AVAILABLE", // Changed from ACTIVE to AVAILABLE
     ...(query ? { 
       OR: [
-        { title: { contains: query, mode: "insensitive" } },
+        { title: { contains: query, mode: "insensitive" } }, // Changed from name to title
         { description: { contains: query, mode: "insensitive" } },
       ] 
     } : {}),
@@ -49,44 +84,65 @@ async function getEbooks(searchParams) {
   };
 
   try {
-    const ebooks = await db.product.findMany({
-      where,
-      select: {
-        id: true,
-        title: true,
-        description: true,
-        price: true,
-        coverImage: true,
-        category: true,
-        owner: {
-          select: {
-            name: true,
-            image: true,
+    const [products, totalCount] = await Promise.all([
+      db.product.findMany({
+        skip,
+        take: limit,
+        where,
+        select: {
+          id: true,
+          title: true, // Changed from name to title
+          description: true,
+          price: true,
+          category: true,
+          dataset: {
+            select: {
+              coverImage: true,
+            },
+          },
+          ebook: { // Added ebook relation to get cover images
+            select: {
+              coverImage: true,
+            },
+          },
+          owner: {
+            select: {
+              name: true,
+              image: true,
+            },
+          },
+          _count: {
+            select: {
+              transactions: true,
+            },
           },
         },
-        _count: {
-          select: {
-            reviews: true,
-            purchases: true,
-          },
-        },
-      },
-      orderBy: sortBy === "price_asc" 
-        ? { price: "asc" } 
-        : sortBy === "price_desc" 
-        ? { price: "desc" } 
-        : { createdAt: "desc" },
-    });
+        orderBy: sortBy === "price_asc" 
+          ? { price: "asc" } 
+          : sortBy === "price_desc" 
+          ? { price: "desc" } 
+          : { createdAt: "desc" },
+      }),
+      db.product.count({ where })
+    ]);
 
-    return ebooks;
+    return {
+      ebooks: products as ProductWithDetails[],
+      totalPages: Math.ceil(totalCount / limit),
+      currentPage: page
+    };
   } catch (error) {
     console.error("Failed to fetch ebooks:", error);
-    return [];
+    return {
+      ebooks: [],
+      totalPages: 0,
+      currentPage: 1
+    };
   }
 }
 
 export default async function EbooksPage({ searchParams }: EbooksPageProps) {
-  const ebooks = await getEbooks(searchParams);
+  const { ebooks, totalPages, currentPage } = await getEbooks(searchParams);
   const categories = ["Fiction", "Non-Fiction", "Technical", "Education", "Business", "Self-Help", "Biography"];
 
   return (
@@ -137,7 +193,14 @@ export default async function EbooksPage({ searchParams }: EbooksPageProps) {
                     {categories.map((category) => (
                       <Link
                         key={category}
-                        href={`/marketplace/ebooks?category=${category.toLowerCase()}`}
+                        href={{
+                          pathname: '/marketplace/ebooks',
+                          query: {
+                            ...searchParams,
+                            category: category.toLowerCase(),
+                            page: '1'
+                          }
+                        }}
                         className={`block px-2 py-1 text-sm rounded-md ${
                           searchParams.category === category.toLowerCase()
                             ? "bg-primary/10 text-primary"
@@ -153,7 +216,7 @@ export default async function EbooksPage({ searchParams }: EbooksPageProps) {
                 <div className="space-y-2">
                   <p className="text-sm font-medium">Sort By</p>
                   <Select
-                    defaultValue={searchParams.sort || "newest"}
+                    defaultValue={searchParams.sort?.toString() || "newest"}
                     onValueChange={(value) => {
                       const url = new URL(window.location.href);
                       url.searchParams.set("sort", value);
@@ -189,18 +252,19 @@ export default async function EbooksPage({ searchParams }: EbooksPageProps) {
                 {ebooks.map((ebook) => (
                   <Card key={ebook.id} className="overflow-hidden">
                     <div className="aspect-[3/4] relative bg-muted">
-                      {ebook.coverImage ? (
-                        <Image
-                          src={ebook.coverImage}
-                          alt={ebook.title}
-                          fill
-                          className="object-cover"
-                        />
-                      ) : (
-                        <div className="absolute inset-0 flex items-center justify-center bg-muted">
-                          <Book className="h-12 w-12 text-muted-foreground" />
-                        </div>
-                      )}
+                    {/* Prioritize ebook cover image, fall back to dataset cover */}
+                    {(ebook.ebook?.coverImage || ebook.dataset?.coverImage) ? (
+                      <Image
+                        src={ebook.ebook?.coverImage || ebook.dataset?.coverImage || ''}
+                        alt={ebook.title} // Changed from name to title
+                        fill
+                        className="object-cover"
+                      />
+                    ) : (
+                      <div className="absolute inset-0 flex items-center justify-center bg-muted">
+                        <Book className="h-12 w-12 text-muted-foreground" />
+                      </div>
+                    )}
                     </div>
                     <CardHeader className="p-4">
                       <CardTitle className="line-clamp-1 text-lg">
@@ -208,13 +272,13 @@ export default async function EbooksPage({ searchParams }: EbooksPageProps) {
                           href={`/marketplace/product-listing/${ebook.id}`}
                           className="hover:underline"
                         >
-                          {ebook.title}
+                          {ebook.title} {/* Changed from name to title */}
                         </Link>
                       </CardTitle>
                       <div className="flex items-center text-sm text-muted-foreground">
                         <span>By {ebook.owner.name}</span>
                         <span className="mx-2">•</span>
-                        <span>{ebook._count.purchases} sold</span>
+                        <span>{ebook._count.transactions} sold</span>
                       </div>
                     </CardHeader>
                     <CardContent className="p-4 pt-0">
@@ -228,6 +292,37 @@ export default async function EbooksPage({ searchParams }: EbooksPageProps) {
                     </CardFooter>
                   </Card>
                 ))}
+              </div>
+            )}
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="mt-6 flex justify-center gap-2">
+                <Button
+                  variant="outline"
+                  disabled={currentPage <= 1}
+                  onClick={() => {
+                    const url = new URL(window.location.href);
+                    url.searchParams.set("page", String(currentPage - 1));
+                    window.location.href = url.toString();
+                  }}
+                >
+                  Previous
+                </Button>
+                <span className="flex items-center px-4 text-sm">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => {
+                    const url = new URL(window.location.href);
+                    url.searchParams.set("page", String(currentPage + 1));
+                    window.location.href = url.toString();
+                  }}
+                >
+                  Next
+                </Button>
               </div>
             )}
           </div>

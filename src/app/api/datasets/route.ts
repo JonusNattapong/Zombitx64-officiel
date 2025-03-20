@@ -1,108 +1,160 @@
-import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
-import { prisma } from '@/lib/db'; // Corrected import
-import csv from 'csv-parser';
-import stream from 'stream';
+import { NextRequest, NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
+import { prisma } from '@/lib/prisma'
+import { Prisma } from '@prisma/client'
+import {
+  buildDatasetQuery,
+  buildDatasetOrderBy,
+  validateCreateDataset,
+  serializeDataset,
+  deserializeDataset,
+  DEFAULT_PAGE_SIZE
+} from '@/lib/dataset-utils'
+import { authOptions } from '@/lib/auth'
 
-// Helper function to parse CSV and return a preview
-async function parseCSV(file: File): Promise<object[]> {
-  return new Promise((resolve, reject) => {
-    const results: object[] = [];
-    const fileStream = stream.Readable.fromWeb(file.stream() as any);
+export async function GET(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url)
+    const page = parseInt(searchParams.get('page') || '1')
+    const limit = parseInt(searchParams.get('limit') || String(DEFAULT_PAGE_SIZE))
+    const sortBy = searchParams.get('sortBy') || undefined
+    const sortOrder = (searchParams.get('sortOrder') || 'desc') as Prisma.SortOrder
+    
+    const query = buildDatasetQuery(Object.fromEntries(searchParams.entries()))
+    const orderBy = {
+      [sortBy || 'createdAt']: sortOrder
+    } as Prisma.DatasetOrderByWithRelationInput
 
-    fileStream
-      .pipe(csv())
-      .on('data', (data) => results.push(data))
-      .on('end', () => resolve(results.slice(0, 5))) // Limit to first 5 rows for preview
-      .on('error', (error) => reject(error));
-  });
+    const [datasets, total] = await Promise.all([
+      prisma.dataset.findMany({
+        where: query,
+        orderBy,
+        skip: (page - 1) * limit,
+        take: limit,
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              image: true
+            }
+          },
+          product: {
+            select: {
+              id: true,
+              price: true,
+              status: true
+            }
+          },
+          files: {
+            select: {
+              id: true,
+              filename: true,
+              fileType: true,
+              fileSize: true
+            }
+          }
+        }
+      }),
+      prisma.dataset.count({ where: query })
+    ])
+
+    return NextResponse.json({
+      datasets: datasets.map(deserializeDataset),
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit)
+      }
+    })
+  } catch (error) {
+    console.error('Error fetching datasets:', error)
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    )
+  }
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const formData = await req.formData();
-    const title = formData.get('title') as string;
-    const description = formData.get('description') as string;
-    const tags = formData.get('tags') as string | undefined;
-    const metadata = formData.get('metadata') as string | undefined;
-    const coverImage = formData.get('coverImage') as File | undefined;
-    const files = formData.getAll('files') as File[];
-    const category = formData.get('category') as string; // Get category from form data
-    const price = parseFloat(formData.get('price') as string); // Get and parse price
-    if (!title || !description || isNaN(price) || !category) {
+    const session = await getServerSession(authOptions)
+    if (!session?.user) {
       return NextResponse.json(
-        { error: 'Title, description, price, and category are required' },
-        { status: 400 }
-      );
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
     }
 
-    // TODO: Implement actual file upload to a storage service (e.g., AWS S3, Cloudinary)
-    // For now, we'll just log the file names and sizes as placeholders.
-    console.log('Cover Image:', coverImage?.name, coverImage?.size);
-    files.forEach((file) => {
-      console.log('File:', file.name, file.size, file.type);
-    });
+    const body = await req.json()
+    const validatedData = validateCreateDataset(body)
+    const serializedData = serializeDataset(validatedData)
 
-    // Create the dataset
-    const dataset = await prisma.dataset.create({
-      data: {
-        title,
-        description,
-        tags,
-        metadata,
-        userId: session.user.id,
-        // Replace with actual file URLs after uploading
-        coverImage: coverImage?.name,
-        files: {
-          createMany: {
-            data: files.map((file) => ({
-              filename: file.name,
-              fileType: file.type,
-              // Replace with actual file URL after uploading
-              fileUrl: file.name,
-            })),
-          },
-        },
-      },
-    });
-
-    // Find a CSV file for preview
-    let preview = null;
-    for (const file of files) {
-      if (file.type === 'text/csv') {
-        preview = await parseCSV(file);
-        break; // Stop after the first CSV file
+    // Create base dataset data
+    const datasetData: Prisma.DatasetCreateInput = {
+      title: validatedData.title,
+      description: validatedData.description,
+      tags: serializedData.tags,
+      metadata: serializedData.metadata,
+      status: 'PENDING',
+      coverImage: validatedData.coverImage,
+      user: {
+        connect: { id: session.user.id }
       }
     }
 
-    // Create a product associated with the dataset
-    const product = await prisma.product.create({
-      data: {
-        title,
-        description,
-        price,
-        category,
-        fileHash: 'placeholder', // Replace with actual file hash
-        version: '1.0.0',
-        ownerId: session.user.id,
-        datasetId: dataset.id,
-        extendedMetrics: preview ? JSON.stringify({ preview }) : null, // Store preview
-      },
-    });
+    // If it's a paid dataset, create a product
+    if (validatedData.licenseType === 'PAID' && body.price) {
+      datasetData.product = {
+        create: {
+          name: validatedData.title,
+          description: validatedData.description,
+          price: body.price,
+          category: 'DATASET',
+          productType: 'DATASET',
+          status: 'AVAILABLE',
+          fileHash: '',
+          version: '1.0',
+          owner: {
+            connect: { id: session.user.id }
+          }
+        }
+      }
+    }
 
-    return NextResponse.json({ dataset, product }, { status: 201 });
-  } catch (error) {
-    console.error('Error creating dataset:', error);
+    const dataset = await prisma.dataset.create({
+      data: datasetData,
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            image: true
+          }
+        },
+        product: {
+          select: {
+            id: true,
+            price: true,
+            status: true
+          }
+        }
+      }
+    })
+
+    return NextResponse.json(deserializeDataset(dataset))
+  } catch (error: any) {
+    console.error('Error creating dataset:', error)
+    if (error.name === 'ZodError') {
+      return NextResponse.json(
+        { error: 'Validation error', details: error.errors },
+        { status: 400 }
+      )
+    }
     return NextResponse.json(
-      { error: 'Failed to create dataset' },
+      { error: 'Internal server error' },
       { status: 500 }
-    );
+    )
   }
 }
