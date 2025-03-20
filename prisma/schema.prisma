@@ -45,6 +45,7 @@ model User {
   sellerTransactions EscrowTransaction[] @relation("SellerTransactions")
   initiatedDisputes Dispute[]          @relation("DisputeInitiator")
   resolvedDisputes  Dispute[]          @relation("DisputeResolver")
+  ebooks           Ebook[]
 }
 
 model password_reset {
@@ -56,7 +57,7 @@ model password_reset {
   createdAt DateTime @default(now())
   used      Boolean   @default(false)
 
-  @@index([userId])
+  @@index([userId], map: "password_reset_userId_idx")
 }
 
 model Account {
@@ -79,11 +80,11 @@ model Account {
 }
 
 model Session {
-    id            String        @id @default(cuid())
-    sessionToken  String        @unique
-    userId        String
-    expires       DateTime
-    user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id            String        @id @default(cuid())
+  sessionToken  String        @unique
+  userId        String
+  expires       DateTime
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model UserSettings {
@@ -121,21 +122,22 @@ model Product {
   metrics       String?
   extendedMetrics String?
   tags          String?
-  status        String        // AVAILABLE, PENDING_PAYMENT, SOLD
+  status        String        @default("AVAILABLE")  // AVAILABLE, PENDING_PAYMENT, SOLD
   ownerId       String
   owner         User          @relation("CreatedProducts", fields: [ownerId], references: [id])
   transactions  Transaction[]
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   datasetId     String?       @unique
-  productType   String        // Added productType
+  productType   String        // DATASET, EBOOK, OTHER
   dataset       Dataset?      @relation(fields: [datasetId], references: [id])
   promotions    Promotion[]   @relation("ProductPromotions")
   currentStatus String?
   escrowTransactions EscrowTransaction[]
+  ebook         Ebook?        // Added ebook relation
 
-  @@index([name])
-  @@index([category])
+  @@index([name], map: "Product_name_idx")
+  @@index([category], map: "Product_category_idx")
 }
 
 model Transaction {
@@ -158,39 +160,16 @@ model Transaction {
   escrowFee     Float
   transactionHash String?
   escrowId      String?
-  disputeStatus DisputeStatus     @default(NONE)
+  disputeStatus String         @default("NONE") // NONE, PENDING, RESOLVED
   disputeReason String?
   disputeOpenedAt DateTime?
   disputeResolvedAt DateTime?
   disputeResolution String?
   disputeResolutionReason String?
   completedAt   DateTime?
-}
 
-enum ProductStatus {
-  ACTIVE
-  INACTIVE
-}
-
-enum TransactionStatus {
-  PENDING
-  IN_ESCROW
-  COMPLETED
-  DISPUTED
-  REFUNDED
-  CANCELLED
-}
-
-enum PaymentMethod {
-  BLOCKCHAIN
-  BANK_TRANSFER
-  CREDIT_CARD
-}
-
-enum DisputeStatus {
-  NONE
-  PENDING
-  RESOLVED
+  @@index([buyerId], map: "Transaction_buyerId_idx")
+  @@index([sellerId], map: "Transaction_sellerId_idx")
 }
 
 model Challenge {
@@ -223,13 +202,13 @@ model Notification {
   type      String
   title     String
   message   String
-  data      Json?
+  data      String?  // Store JSON as string
   read      Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   user      User     @relation(fields: [userId], references: [id])
 
-  @@index([userId])
+  @@index([userId], map: "Notification_userId_idx")
 }
 
 model ApiUsage {
@@ -269,8 +248,8 @@ model Dataset {
   status        String       @default("PENDING")
   product       Product?
 
-  @@index([title])
-  @@index([userId])
+  @@index([title], map: "Dataset_title_idx")
+  @@index([userId], map: "Dataset_userId_idx")
 }
 
 model DatasetFile {
@@ -286,8 +265,8 @@ model DatasetFile {
   dataset       Dataset         @relation(fields: [datasetId], references: [id], onDelete: Cascade)
   createdAt     DateTime        @default(now())
 
-  @@index([datasetId])
-  @@index([fileHash])
+  @@index([datasetId], map: "DatasetFile_datasetId_idx")
+  @@index([fileHash], map: "DatasetFile_fileHash_idx")
 }
 
 model Promotion {
@@ -296,24 +275,13 @@ model Promotion {
   category      String?
   startDate     DateTime
   endDate       DateTime
-  status        PromotionStatus
-  discountType  DiscountType
+  status        String        @default("INACTIVE") // ACTIVE, INACTIVE, SCHEDULED
+  discountType  String        // PERCENTAGE, FIXED
   discountValue Float
-  products      Product[]       @relation("ProductPromotions")
+  products      Product[]     @relation("ProductPromotions")
 
-  @@index([productId])
-  @@index([category])
-}
-
-enum PromotionStatus {
-  ACTIVE
-  INACTIVE
-  SCHEDULED
-}
-
-enum DiscountType {
-  PERCENTAGE
-  FIXED
+  @@index([productId], map: "Promotion_productId_idx")
+  @@index([category], map: "Promotion_category_idx")
 }
 
 model NameChange {
@@ -339,9 +307,9 @@ model EscrowTransaction {
   product         Product   @relation(fields: [productId], references: [id])
   dispute         Dispute?
 
-  @@index([buyerId])
-  @@index([sellerId])
-  @@index([productId])
+  @@index([buyerId], map: "EscrowTransaction_buyerId_idx")
+  @@index([sellerId], map: "EscrowTransaction_sellerId_idx")
+  @@index([productId], map: "EscrowTransaction_productId_idx")
 }
 
 model Dispute {
@@ -361,32 +329,39 @@ model Dispute {
   initiator       User              @relation("DisputeInitiator", fields: [initiatorId], references: [id])
   resolvedBy      User?             @relation("DisputeResolver", fields: [resolvedById], references: [id])
 
-  @@index([initiatorId])
-  @@index([resolvedById])
+  @@index([initiatorId], map: "Dispute_initiatorId_idx")
+  @@index([resolvedById], map: "Dispute_resolvedById_idx")
 }
 
 model Ebook {
-  id               String   @id @default(uuid())
+  id               String    @id @default(uuid())
   title            String
   description      String
   category         String
-  tags             String[]
+  tags             String    @default("[]") // JSON array of strings
   language         String
   author           String
   publishYear      String?
   publisher        String?
-  isbn             String?
-  pages            String?
-  tableOfContents  String?
-  sampleContent    String?
+  isbn             String?   @unique
+  pages            Int?
+  tableOfContents  String?   // JSON structure
+  sampleContent    String?   // First chapter or preview
   coverImage       String?
   fileUrl          String?
   previewUrl       String?
-  visibility       String
-  licenseType      String
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  visibility       String    @default("PUBLIC") // PUBLIC, PRIVATE, UNLISTED
+  licenseType      String    // FREE, PAID, SUBSCRIPTION, EDUCATIONAL, ENTERPRISE
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
   userId           String
-  // Relation to Product if needed
-  product          Product? @relation(fields: [userId], references: [id])
+  productId        String?   @unique
+  downloads        Int       @default(0)
+  rating           Float?    // Average rating
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product          Product?  @relation(fields: [productId], references: [id])
+
+  @@index([category], map: "Ebook_category_idx")
+  @@index([visibility], map: "Ebook_visibility_idx")
+  @@index([userId], map: "Ebook_userId_idx")
 }
